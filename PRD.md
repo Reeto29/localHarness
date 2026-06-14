@@ -92,10 +92,11 @@ you'd just have a series of one-shot prompts.
 - **Note:** `run_bash` runs unguarded for now. The "ask before running" confirmation
   lands in M3 with the CLI, since it needs the interactive layer.
 
-### M3 — CLI ⬜
-- [ ] `main.py`: type a task, watch it work, see the result
-- [ ] Print tool calls and results as they happen
-- [ ] Ask before running anything via `run_bash`
+### M3 — CLI ✅
+- [x] `main.py`: type a task, watch it work, see the result
+- [x] Print tool calls and results as they happen
+- [x] Ask before running anything via `run_bash` (confirm callback in `agent.run`)
+- [x] Deny path: model is told the command was declined, keeps going
 
 ### M4 — Two-model split ⬜
 - [ ] `delegate_to_coder` fires a one-shot call to the coder

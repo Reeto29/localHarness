@@ -19,9 +19,17 @@ SYSTEM_PROMPT = (
 # A safety cap so a confused model can't loop forever.
 MAX_STEPS = 20
 
+# Tools that should ask before running.
+NEEDS_CONFIRM = {"run_bash"}
 
-def run(task, model=ORCHESTRATOR, verbose=True):
-    """Run one task to completion. Returns the model's final text answer."""
+
+def run(task, model=ORCHESTRATOR, verbose=True, confirm=None):
+    """Run one task to completion. Returns the model's final text answer.
+
+    confirm: optional callable(name, args) -> bool. Called before running a tool
+             in NEEDS_CONFIRM. Return False to skip it (the model is told it was
+             denied). If confirm is None, everything runs.
+    """
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": task},
@@ -46,6 +54,8 @@ def run(task, model=ORCHESTRATOR, verbose=True):
             func = TOOL_FUNCS.get(name)
             if func is None:
                 result = f"ERROR: unknown tool {name}"
+            elif name in NEEDS_CONFIRM and confirm is not None and not confirm(name, args):
+                result = "DENIED: the user declined to run this command."
             else:
                 try:
                     result = func(**args)
