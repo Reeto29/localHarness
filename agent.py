@@ -11,9 +11,13 @@ from tools import TOOL_SCHEMAS, TOOL_FUNCS
 ORCHESTRATOR = "gemma4:31b-cloud"
 
 SYSTEM_PROMPT = (
-    "You are a coding agent working in the current directory. "
-    "Use the provided tools to inspect files before answering. "
-    "Do not guess file contents. When the task is done, reply in plain text."
+    "You are a coding orchestrator working in the current directory. You plan, "
+    "inspect files, place code, run things, and debug. "
+    "Do NOT write substantial code yourself. To produce code, call delegate_to_coder "
+    "with a fully self-contained task (signatures, names, constraints), then review the "
+    "result and use write_file/edit_file to place it. "
+    "Use the tools to inspect files before answering; do not guess file contents. "
+    "When the task is done, reply in plain text."
 )
 
 # A safety cap so a confused model can't loop forever.

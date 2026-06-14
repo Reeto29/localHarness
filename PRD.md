@@ -98,10 +98,14 @@ you'd just have a series of one-shot prompts.
 - [x] Ask before running anything via `run_bash` (confirm callback in `agent.run`)
 - [x] Deny path: model is told the command was declined, keeps going
 
-### M4 — Two-model split ⬜
-- [ ] `delegate_to_coder` fires a one-shot call to the coder
-- [ ] Orchestrator reviews, places, and debugs what the coder writes
-- [ ] Tune `num_ctx` for the coder
+### M4 — Two-model split ✅
+- [x] `delegate_to_coder` fires a one-shot call to the coder (`generate()`)
+- [x] Orchestrator system prompt tells it to delegate code, then place/review it
+- [x] `num_ctx` set to 8192 for the coder
+- [x] Verified end to end: orchestrator specced FizzBuzz → coder wrote it →
+  orchestrator placed and ran it
+
+**v0 done.** The harness plans with the cloud model and writes code with the local one.
 
 ### M5 — Later
 - [ ] Keep it inside a working directory so it can't wander the filesystem

@@ -12,8 +12,8 @@ The reasoning behind the split, plus the milestone plan, is in [PRD.md](PRD.md).
 
 ## Status
 
-Early days. Talking to a model works, and a single tool call works end to end. The agent
-loop is next.
+v0 works. The cloud model orchestrates and the local coder writes the code. Run it with
+`python3 main.py`, type a task, and approve any shell commands it wants to run.
 
 ## Requirements
 

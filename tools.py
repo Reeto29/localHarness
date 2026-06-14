@@ -11,6 +11,17 @@ TOOL_FUNCS    -> name -> function, so the loop can dispatch a tool call
 import os
 import subprocess
 
+from llm import generate
+
+# The small local model that actually writes code.
+CODER_MODEL = "qwen2.5-coder:latest"
+
+CODER_SYSTEM = (
+    "You are a focused coding model. You are given one small, self-contained task. "
+    "Return only the code that satisfies it, with no explanation, no markdown fences, "
+    "and no commentary. If a docstring or comment helps, put it in the code itself."
+)
+
 
 # --- the functions ------------------------------------------------------------
 
@@ -95,6 +106,23 @@ def grep(pattern, path="."):
         return f"ERROR: grep failed: {e}"
 
 
+def delegate_to_coder(task):
+    """Send one focused coding task to the small local coder model. Returns code.
+
+    The coder gets a fresh one-shot prompt with no conversation history, so the
+    `task` string must be self-contained: say exactly what to write, with any
+    signatures, names, and constraints the code needs.
+    """
+    try:
+        code = generate(
+            CODER_MODEL, task, system=CODER_SYSTEM,
+            options={"temperature": 0, "num_ctx": 8192},
+        )
+        return code.strip() or "ERROR: coder returned nothing"
+    except Exception as e:
+        return f"ERROR: coder failed: {e}"
+
+
 def run_bash(command):
     """Run a shell command, return combined stdout+stderr (truncated)."""
     try:
@@ -153,6 +181,14 @@ TOOL_SCHEMAS = [
     _fn("run_bash", "Run a shell command in the working directory and return its output.",
         {"command": {"type": "string", "description": "The shell command to run."}},
         ["command"]),
+
+    _fn("delegate_to_coder",
+        "Delegate one small, self-contained coding task to a dedicated coding model and "
+        "get back the code. Use this to write functions/files instead of writing code "
+        "yourself. The task must be fully specified: it gets no conversation history.",
+        {"task": {"type": "string", "description": "A complete, self-contained description "
+                  "of the code to write, including signatures, names, and constraints."}},
+        ["task"]),
 ]
 
 
@@ -165,4 +201,5 @@ TOOL_FUNCS = {
     "list_dir": list_dir,
     "grep": grep,
     "run_bash": run_bash,
+    "delegate_to_coder": delegate_to_coder,
 }
