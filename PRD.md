@@ -1,7 +1,7 @@
 # Local Coding Harness — PRD
 
-A from-scratch agentic coding harness running entirely on **Ollama**, built to learn
-how these systems work and to have a private, local coding agent.
+A coding agent built from scratch on Ollama. I'm doing it this way to actually understand
+how agentic harnesses work, and to end up with a private coding agent I run locally.
 
 **Status legend:** ✅ done · 🚧 in progress · ⬜ not started
 
@@ -9,33 +9,33 @@ how these systems work and to have a private, local coding agent.
 
 ## 1. Goals
 
-- Build a working agentic coding loop on local + cloud Ollama models.
-- Understand every layer ourselves — no black-box framework (LangChain, etc.).
-- Split roles between a strong **orchestrator/debugger** and a lightweight **coder**.
-- Stay dependency-free where reasonable (stdlib HTTP client, no SDK).
+- Get a working coding agent running on a mix of local and cloud Ollama models.
+- Understand every layer myself, instead of leaning on something like LangChain.
+- Use a strong model to orchestrate and debug, and a small one to write code.
+- Avoid dependencies where I reasonably can. The HTTP client is stdlib, no SDK.
 
-## 2. Non-goals (for now)
+## 2. Not doing yet
 
-- No GUI / TUI / VSCode extension — plain CLI only.
-- No multi-agent message-passing — one loop, coder is a tool.
-- No sandboxing beyond a workspace dir + command confirmation (revisit later).
-- Not optimizing for speed/cost yet — correctness and understanding first.
+- No GUI, TUI, or VSCode extension. Plain CLI.
+- No two agents talking to each other. One loop, and the coder is just a tool it calls.
+- No real sandboxing beyond a working directory and asking before running commands.
+- Not worrying about speed or cost yet. I want it correct and legible first.
 
 ## 3. Models
 
 | Role | Model | Where it runs | Notes |
 |---|---|---|---|
-| Orchestrator / debugger | `gemma4:31b-cloud` | Ollama cloud (no local RAM) | Owns the loop, plans, reviews, debugs. Carries full history. |
-| Coder | `qwen2.5-coder:latest` (7B) | Local, M2 Pro 16GB | Fresh focused prompt each call. Mind Ollama's 4K `num_ctx` default. |
+| Orchestrator / debugger | `gemma4:31b-cloud` | Ollama cloud, no local RAM | Runs the loop and holds the full history. |
+| Coder | `qwen2.5-coder` (7B) | Local, M2 Pro 16GB | Fresh focused prompt each call. Watch Ollama's 4K `num_ctx` default. |
 
-## 4. Architecture
+## 4. How it works
 
-The harness is a **loop** around an LLM:
+The harness is a loop around a model:
 
-1. Send the model the conversation history + a list of tools it may use.
-2. The model replies with text (done) or a request to call a tool.
-3. Our code runs the tool, captures the result, appends it to history.
-4. Repeat until the model stops asking for tools.
+1. Send the model the conversation so far, plus the list of tools it's allowed to use.
+2. It replies with either an answer or a request to call a tool.
+3. If it asked for a tool, run it, and add the result to the conversation.
+4. Go back to step 1. Stop once it answers without asking for a tool.
 
 ```
 CLI  ──task──▶  AGENT LOOP  ──history+tools──▶  MODELS (llm.py)
@@ -44,60 +44,62 @@ CLI  ──task──▶  AGENT LOOP  ──history+tools──▶  MODELS (llm.
                        (delegate_to_coder fires a one-shot chat to the coder)
 ```
 
-**Two-model split:** the orchestrator runs the loop and owns all tools. The coder is
-exposed to it as just another tool, `delegate_to_coder(task)`, which fires a *separate
-one-shot* `chat()` to the coder. The coder never sees the conversation history — only a
-tight, self-contained task string. This is what keeps the small model's context small.
+Why two models. The orchestrator runs the loop and owns every tool. The coder is exposed
+to it as one more tool, `delegate_to_coder(task)`, which fires a separate one-shot call to
+the small model. The coder never sees the running conversation, only a short self-contained
+task. That's the whole reason it can stay small: the big model does the thinking and hands
+it a tight spec.
 
-**Memory:** the growing `messages` list is the memory. Every tool call + result is
-appended to it. That accumulation is what makes the system agentic vs. one-shot.
+Where the memory lives: in the growing `messages` list. Every tool call and its result get
+appended to it, and that running history is what the model sees on the next turn. Without it
+you'd just have a series of one-shot prompts.
 
 ## 5. Files
 
-| File | Responsibility | Status |
+| File | What it does | Status |
 |---|---|---|
-| `llm.py` | Talk to a model over Ollama's HTTP API (stdlib only) | ✅ |
-| `tools.py` | Tool functions + their JSON schemas | ⬜ |
-| `agent.py` | The loop: holds history, dispatches tool calls, owns models | ⬜ |
-| `main.py` | CLI that reads input and runs the agent | ⬜ |
+| `llm.py` | Tiny Ollama HTTP client | ✅ |
+| `tools.py` | Tool functions and their schemas | ⬜ |
+| `agent.py` | The loop: history, tool dispatch, picking models | ⬜ |
+| `main.py` | CLI that takes a task and runs the agent | ⬜ |
 
 ---
 
 ## 6. Milestones
 
-> We edit these as we go — check items off, add detail, reorder as we learn.
+> I edit these as I go: check things off, add notes, reorder when I learn something.
 
 ### M0 — Talk to a model ✅
 - [x] Stdlib Ollama HTTP client (`llm.py`)
-- [x] Verified `chat()` and `generate()` return real replies
+- [x] Confirmed `chat()` and `generate()` return real replies
 
-### M1 — First tool, end-to-end ✅
-- [x] `tools.py` with one tool: `read_file`
-- [x] Tool JSON schema the model understands
-- [x] Prove the model *requests* the tool (`tool_calls` appears in the reply)
-- [x] Manually run the requested tool and feed the result back
-- **Lesson:** `qwen2.5-coder` advertises `tools` but emits calls as plain-text JSON
-  (Ollama can't parse them). `gemma4:31b-cloud` emits native `tool_calls` cleanly.
-  → Orchestrator must be the cloud model; coder is only ever called one-shot via
-  `generate()`, so its quirk doesn't matter. `gemma4:12b` has no `tools` capability.
+### M1 — First tool, end to end ✅
+- [x] `tools.py` with one tool, `read_file`
+- [x] A tool schema the model understands
+- [x] Confirmed the model actually asks for the tool (`tool_calls` shows up)
+- [x] Ran the tool by hand and fed the result back
+- **What I learned:** `qwen2.5-coder` claims `tools` support but writes the call as plain
+  JSON text, which Ollama won't parse. `gemma4:31b-cloud` returns proper `tool_calls`. So
+  the orchestrator has to be the cloud model. The coder only ever gets called one shot via
+  `generate()`, so its quirk doesn't matter. `gemma4:12b` has no `tools` support at all.
 
 ### M2 — The agent loop 🚧
-- [ ] `agent.py` with the read→tool→append→repeat loop
-- [ ] Tool dispatch (map tool name → Python function)
-- [ ] Stop condition (model replies with no tool calls)
-- [ ] Add core tools: `write_file`, `edit_file`, `list_dir`, `grep`, `run_bash`
+- [ ] `agent.py` with the read → run tool → append → repeat loop
+- [ ] Dispatch: map a tool name to its Python function
+- [ ] Stop when the model replies with no tool calls
+- [ ] Add the rest: `write_file`, `edit_file`, `list_dir`, `grep`, `run_bash`
 
 ### M3 — Two-model split ⬜
-- [ ] `delegate_to_coder` tool fires a one-shot `chat()` to the coder
-- [ ] Orchestrator reviews/places/debugs coder output
+- [ ] `delegate_to_coder` fires a one-shot call to the coder
+- [ ] Orchestrator reviews, places, and debugs what the coder writes
 - [ ] Tune `num_ctx` for the coder
 
 ### M4 — CLI ⬜
-- [ ] `main.py` REPL: type a task, watch the agent work, see results
-- [ ] Show tool calls + results as they happen
-- [ ] Command confirmation for `run_bash` (safety)
+- [ ] `main.py`: type a task, watch it work, see the result
+- [ ] Print tool calls and results as they happen
+- [ ] Ask before running anything via `run_bash`
 
-### M5 — Polish (later) ⬜
-- [ ] Workspace dir scoping (don't let it wander the filesystem)
-- [ ] History trimming / summarization when it grows
-- [ ] Config file for models + options
+### M5 — Later
+- [ ] Keep it inside a working directory so it can't wander the filesystem
+- [ ] Trim or summarize history when it gets long
+- [ ] Config file for models and options

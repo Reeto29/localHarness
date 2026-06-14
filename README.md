@@ -1,28 +1,31 @@
 # localHarness
 
-A from-scratch agentic coding harness running on [Ollama](https://ollama.com), built to
-learn how these systems work end-to-end — no framework, mostly stdlib.
+A coding agent I'm building from scratch on top of [Ollama](https://ollama.com), mostly to
+understand how these things actually work. No framework, almost all stdlib.
 
-- **Orchestrator / debugger:** `gemma4:31b-cloud` (runs the loop, plans, reviews, debugs)
-- **Coder:** `qwen2.5-coder` (writes focused code, called one-shot)
+There are two models doing two jobs:
 
-See [PRD.md](PRD.md) for goals, architecture, and the milestone roadmap.
+- `gemma4:31b-cloud` runs the loop and does the thinking: planning, reviewing, debugging.
+- `qwen2.5-coder` writes the actual code. It gets called one shot at a time with a tight prompt.
+
+The reasoning behind the split, plus the milestone plan, is in [PRD.md](PRD.md).
 
 ## Status
 
-Early. M0 (talk to a model) and M1 (first tool, end-to-end) done. Building the agent loop next.
+Early days. Talking to a model works, and a single tool call works end to end. The agent
+loop is next.
 
 ## Requirements
 
-- [Ollama](https://ollama.com) running locally (`ollama serve`)
-- Python 3 (stdlib only — no pip installs)
-- Models: `ollama pull qwen2.5-coder`, plus access to a cloud orchestrator model
+- Ollama running locally (`ollama serve`)
+- Python 3, nothing to pip install
+- `ollama pull qwen2.5-coder`, plus access to a cloud model for the orchestrator
 
 ## Layout
 
-| File | Responsibility |
+| File | What it does |
 |---|---|
-| `llm.py` | Minimal Ollama HTTP client (stdlib) |
-| `tools.py` | Tool functions + their JSON schemas |
-| `agent.py` | The agent loop (planned) |
-| `main.py` | CLI (planned) |
+| `llm.py` | Tiny Ollama HTTP client |
+| `tools.py` | The tools the agent can call, and their schemas |
+| `agent.py` | The loop (not written yet) |
+| `main.py` | The CLI (not written yet) |
