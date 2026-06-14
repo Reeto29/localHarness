@@ -21,6 +21,8 @@ def read_file(path):
             return f.read()
     except FileNotFoundError:
         return f"ERROR: file not found: {path}"
+    except UnicodeDecodeError:
+        return f"ERROR: {path} looks like a binary file, not text."
     except Exception as e:
         return f"ERROR: could not read {path}: {e}"
 

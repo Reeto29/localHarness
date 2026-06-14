@@ -107,3 +107,5 @@ you'd just have a series of one-shot prompts.
 - [ ] Keep it inside a working directory so it can't wander the filesystem
 - [ ] Trim or summarize history when it gets long
 - [ ] Config file for models and options
+- [ ] Sandboxing: revisit `run_bash` using `shell=True`. Fine for local/trusted use
+  (the confirm prompt is the guard), but a real sandbox is needed before untrusted use.

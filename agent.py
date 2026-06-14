@@ -62,6 +62,11 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None):
                 except Exception as e:
                     result = f"ERROR running {name}: {e}"
 
-            messages.append({"role": "tool", "tool_name": name, "content": str(result)})
+            tool_msg = {"role": "tool", "tool_name": name, "content": str(result)}
+            # Echo the call id back so the model can match results to calls
+            # (matters when it makes several tool calls in one turn).
+            if call.get("id"):
+                tool_msg["tool_call_id"] = call["id"]
+            messages.append(tool_msg)
 
     return "[stopped: hit MAX_STEPS without a final answer]"
