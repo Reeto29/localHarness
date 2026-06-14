@@ -83,21 +83,24 @@ you'd just have a series of one-shot prompts.
   the orchestrator has to be the cloud model. The coder only ever gets called one shot via
   `generate()`, so its quirk doesn't matter. `gemma4:12b` has no `tools` support at all.
 
-### M2 — The agent loop 🚧
-- [ ] `agent.py` with the read → run tool → append → repeat loop
-- [ ] Dispatch: map a tool name to its Python function
-- [ ] Stop when the model replies with no tool calls
-- [ ] Add the rest: `write_file`, `edit_file`, `list_dir`, `grep`, `run_bash`
+### M2 — The agent loop ✅
+- [x] `agent.py` with the read → run tool → append → repeat loop
+- [x] Dispatch: map a tool name to its Python function
+- [x] Stop when the model replies with no tool calls
+- [x] MAX_STEPS safety cap + try/except around tool calls
+- [x] Added the rest: `write_file`, `edit_file`, `list_dir`, `grep`, `run_bash`
+- **Note:** `run_bash` runs unguarded for now. The "ask before running" confirmation
+  lands in M3 with the CLI, since it needs the interactive layer.
 
-### M3 — Two-model split ⬜
-- [ ] `delegate_to_coder` fires a one-shot call to the coder
-- [ ] Orchestrator reviews, places, and debugs what the coder writes
-- [ ] Tune `num_ctx` for the coder
-
-### M4 — CLI ⬜
+### M3 — CLI ⬜
 - [ ] `main.py`: type a task, watch it work, see the result
 - [ ] Print tool calls and results as they happen
 - [ ] Ask before running anything via `run_bash`
+
+### M4 — Two-model split ⬜
+- [ ] `delegate_to_coder` fires a one-shot call to the coder
+- [ ] Orchestrator reviews, places, and debugs what the coder writes
+- [ ] Tune `num_ctx` for the coder
 
 ### M5 — Later
 - [ ] Keep it inside a working directory so it can't wander the filesystem
