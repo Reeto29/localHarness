@@ -12,8 +12,25 @@ The reasoning behind the split, plus the milestone plan, is in [PRD.md](PRD.md).
 
 ## Status
 
-v0 works. The cloud model orchestrates and the local coder writes the code. Run it with
-`python3 main.py`, type a task, and approve any shell commands it wants to run.
+v0 works end to end. The cloud model orchestrates, calls tools, and delegates code-writing
+to the local coder, then places and runs the result. Try it:
+
+```
+python3 main.py
+```
+
+Type a task, watch it work, and approve any shell commands it wants to run.
+
+## How it works
+
+The harness is a loop around a model. It sends the conversation plus a list of tools, the
+model either answers or asks to call a tool, the loop runs the tool and feeds the result
+back, and it repeats until the model answers with no tool call. The growing message list is
+the memory.
+
+The coder is exposed to the orchestrator as one more tool (`delegate_to_coder`). It gets a
+fresh, self-contained prompt each call and never sees the conversation, which is what keeps
+the small model's context small. Full reasoning and the milestone history are in [PRD.md](PRD.md).
 
 ## Requirements
 
@@ -27,5 +44,15 @@ v0 works. The cloud model orchestrates and the local coder writes the code. Run 
 |---|---|
 | `llm.py` | Tiny Ollama HTTP client |
 | `tools.py` | The tools the agent can call, and their schemas |
-| `agent.py` | The loop (not written yet) |
-| `main.py` | The CLI (not written yet) |
+| `agent.py` | The agent loop: dispatch tools, stop when done, gate risky calls |
+| `main.py` | The interactive CLI |
+
+## What's next
+
+v0 is the foundation, not the finish line. Before piling on features I want a way to tell
+whether a change actually helps, so an eval harness is coming soon: a small set of coding
+tasks with tests, run against the agent so each new feature has to earn its place against a
+baseline.
+
+After that, the rough priority is context hygiene (read slices, not whole files), a
+verify loop (edit, run tests, fix), and diff approval before edits. See [PRD.md](PRD.md).

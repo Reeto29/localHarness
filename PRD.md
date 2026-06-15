@@ -113,3 +113,42 @@ you'd just have a series of one-shot prompts.
 - [ ] Config file for models and options
 - [ ] Sandboxing: revisit `run_bash` using `shell=True`. Fine for local/trusted use
   (the confirm prompt is the guard), but a real sandbox is needed before untrusted use.
+
+---
+
+## 7. After v0 — toward a genuinely good harness
+
+The plan stays as built: keep the two-model split (cloud orchestrator + local coder). The
+question now is what to add next, and how to know it actually helped. So evals come before
+the feature pile.
+
+### M6 — Eval baseline (do this first)
+Establish a number so every later feature has to earn its place against a baseline.
+- [ ] Surface token/timing counts from `llm.py` (Ollama returns `eval_count`,
+  `prompt_eval_count`, `*_duration`; `chat()` currently drops them).
+- [ ] `agent.run()` returns a metrics dict (steps, per-tool success/fail, token counts).
+- [ ] `bench/` (stdlib only): `runner.py` drives `agent.run()` over a handful of handmade
+  Python tasks, each with a `test.sh` that exits 0 on pass.
+- [ ] Each task runs in a **temp workspace** scoped so a non-interactive auto-confirm is
+  safe. Workspace scoping is a prerequisite here, not a nice-to-have.
+- [ ] Commit `bench/scores.csv` (one row per run); gitignore the per-run logs.
+- [ ] Start small (~5 tasks). Treat sub-10% pass@1 swings as noise.
+
+### M7 — Tier 1 features (measured against M6)
+Rough order reflects dependency + leverage.
+- [ ] **Context hygiene** — read file slices not whole files; truncate tool output
+  (keep head+tail). Do before the verify loop, since verification floods context with logs.
+- [ ] **Verify loop** — edit → run tests → read failure → fix. Biggest quality multiplier.
+- [ ] **Diff approval before edits** — reuse the `confirm` callback; `edit_file` returns a
+  unified diff for the gate.
+
+### M8 — Tier 2 (later)
+- [ ] ripgrep-based search (regex, fast, respects `.gitignore`)
+- [ ] project memory file injected on start
+- [ ] session persistence, then todo/plan mode
+
+### Open questions
+- Relax stdlib-only for ripgrep / a repo-map (tree-sitter), or ship stdlib-lite versions
+  (e.g. `ast` outline for Python + grep elsewhere)?
+- `delegate_to_subagent` (fresh cloud sub-loop for context isolation) — build only when
+  single tasks routinely blow the context budget. Not speculative.
