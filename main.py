@@ -30,12 +30,15 @@ def main():
             break
 
         try:
-            answer = run(task, confirm=confirm_bash)
+            answer, metrics = run(task, confirm=confirm_bash)
         except Exception as e:
             print(f"\n[error] {e}\n")
             continue
 
         print(f"\nagent> {answer}\n")
+        tok = metrics["tokens"]
+        print(f"  [{metrics['steps']} steps, "
+              f"{tok['prompt']}+{tok['eval']} tokens]\n")
 
     print("bye.")
 

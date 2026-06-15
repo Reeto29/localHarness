@@ -124,9 +124,10 @@ the feature pile.
 
 ### M6 — Eval baseline (do this first)
 Establish a number so every later feature has to earn its place against a baseline.
-- [ ] Surface token/timing counts from `llm.py` (Ollama returns `eval_count`,
-  `prompt_eval_count`, `*_duration`; `chat()` currently drops them).
-- [ ] `agent.run()` returns a metrics dict (steps, per-tool success/fail, token counts).
+- [x] Surface token/timing counts from `llm.py` (`chat()` now returns the full body;
+  `prompt_eval_count` / `eval_count` are available).
+- [x] `agent.run()` returns `(answer, metrics)` — steps, per-tool ok/err, token counts,
+  stopped_reason. CLI prints a steps+tokens line per task.
 - [ ] `bench/` (stdlib only): `runner.py` drives `agent.run()` over a handful of handmade
   Python tasks, each with a `test.sh` that exits 0 on pass.
 - [ ] Each task runs in a **temp workspace** scoped so a non-interactive auto-confirm is

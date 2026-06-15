@@ -12,7 +12,10 @@ OLLAMA_HOST = "http://localhost:11434"
 
 
 def chat(model, messages, tools=None, stream=False, options=None):
-    """Call Ollama's /api/chat. Returns the parsed `message` dict.
+    """Call Ollama's /api/chat. Returns the full parsed response body.
+
+    The reply text/tool-calls are in body["message"]. Token/timing counts live
+    at the top level: prompt_eval_count, eval_count, total_duration, etc.
 
     messages: list of {"role", "content", ...}
     tools:    optional list of tool schemas (OpenAI-style function defs)
@@ -46,7 +49,7 @@ def chat(model, messages, tools=None, stream=False, options=None):
             f"Could not reach Ollama at {OLLAMA_HOST}. Is `ollama serve` running? ({e})"
         ) from e
 
-    return body["message"]
+    return body
 
 
 def generate(model, prompt, system=None, options=None):
@@ -55,5 +58,5 @@ def generate(model, prompt, system=None, options=None):
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    msg = chat(model, messages, options=options)
-    return msg.get("content", "")
+    body = chat(model, messages, options=options)
+    return body["message"].get("content", "")

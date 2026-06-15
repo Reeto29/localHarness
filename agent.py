@@ -28,7 +28,7 @@ NEEDS_CONFIRM = {"run_bash"}
 
 
 def run(task, model=ORCHESTRATOR, verbose=True, confirm=None):
-    """Run one task to completion. Returns the model's final text answer.
+    """Run one task to completion. Returns (final_text_answer, metrics).
 
     confirm: optional callable(name, args) -> bool. Called before running a tool
              in NEEDS_CONFIRM. Return False to skip it (the model is told it was
@@ -39,14 +39,32 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None):
         {"role": "user", "content": task},
     ]
 
+    # Metrics for the eval harness (and curiosity).
+    metrics = {
+        "steps": 0,
+        "tokens": {"prompt": 0, "eval": 0},
+        "tools": {},          # name -> {"ok": n, "err": n}
+        "stopped_reason": None,
+    }
+
+    def record_tool(name, ok):
+        t = metrics["tools"].setdefault(name, {"ok": 0, "err": 0})
+        t["ok" if ok else "err"] += 1
+
     for step in range(MAX_STEPS):
-        reply = chat(model, messages, tools=TOOL_SCHEMAS, options={"temperature": 0})
+        metrics["steps"] += 1
+        body = chat(model, messages, tools=TOOL_SCHEMAS, options={"temperature": 0})
+        metrics["tokens"]["prompt"] += body.get("prompt_eval_count", 0) or 0
+        metrics["tokens"]["eval"] += body.get("eval_count", 0) or 0
+
+        reply = body["message"]
         messages.append(reply)  # record what the model said (text or tool calls)
 
         tool_calls = reply.get("tool_calls") or []
         if not tool_calls:
             # No tools requested -> the model is done.
-            return reply.get("content", "")
+            metrics["stopped_reason"] = "done"
+            return reply.get("content", ""), metrics
 
         # Run each requested tool and feed the result back.
         for call in tool_calls:
@@ -66,6 +84,10 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None):
                 except Exception as e:
                     result = f"ERROR running {name}: {e}"
 
+            # A tool "failed" if it returned an error/denied marker.
+            ok = not str(result).startswith(("ERROR", "DENIED"))
+            record_tool(name, ok)
+
             tool_msg = {"role": "tool", "tool_name": name, "content": str(result)}
             # Echo the call id back so the model can match results to calls
             # (matters when it makes several tool calls in one turn).
@@ -73,4 +95,5 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None):
                 tool_msg["tool_call_id"] = call["id"]
             messages.append(tool_msg)
 
-    return "[stopped: hit MAX_STEPS without a final answer]"
+    metrics["stopped_reason"] = "max_steps"
+    return "[stopped: hit MAX_STEPS without a final answer]", metrics
