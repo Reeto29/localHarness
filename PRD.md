@@ -128,12 +128,18 @@ Establish a number so every later feature has to earn its place against a baseli
   `prompt_eval_count` / `eval_count` are available).
 - [x] `agent.run()` returns `(answer, metrics)` — steps, per-tool ok/err, token counts,
   stopped_reason. CLI prints a steps+tokens line per task.
-- [ ] `bench/` (stdlib only): `runner.py` drives `agent.run()` over a handful of handmade
-  Python tasks, each with a `test.sh` that exits 0 on pass.
-- [ ] Each task runs in a **temp workspace** scoped so a non-interactive auto-confirm is
-  safe. Workspace scoping is a prerequisite here, not a nice-to-have.
-- [ ] Commit `bench/scores.csv` (one row per run); gitignore the per-run logs.
-- [ ] Start small (~5 tasks). Treat sub-10% pass@1 swings as noise.
+- [x] `bench/` (stdlib only): `runner.py` drives `agent.run()` over 7 handmade Python
+  tasks, each with a `test.sh` that exits 0 on pass.
+- [x] Each task runs in a temp workspace the runner chdirs into, so auto-confirm is safe.
+  (Not airtight: model could escape with an absolute path or `../`. Fine for handmade tasks.)
+- [x] Commit `bench/scores.csv` (one row per run); gitignore `bench/results/`.
+- [x] Baseline recorded: **7/7 passed, 36 steps, 56.8k tokens.**
+
+**Key finding:** pass-rate is saturated — gemma one-shots every toy task, including the
+multi-bug debug and duplicate-line edit. So **efficiency (tokens, steps) is the primary
+metric** for now; pass-rate is just a regression guard. This fits the near-term work:
+context hygiene is measured in tokens, not pass-rate. Moving pass-rate again needs
+real-world-hard tasks (polyglot / SWE-bench), deferred until the harness is competitive.
 
 ### M7 — Tier 1 features (measured against M6)
 Rough order reflects dependency + leverage.

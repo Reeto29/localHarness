@@ -1,0 +1,5 @@
+The file bank.py has an Account class with deposit, withdraw, and transfer methods. It has
+several bugs. Fix them so the behavior is correct: deposit adds funds, withdraw subtracts
+but must raise ValueError on overdraft (insufficient funds), and transfer(other, amount)
+moves money from this account to other atomically (no money lost or created). Balances
+must never go negative. Run the code to check your work; don't just read it.

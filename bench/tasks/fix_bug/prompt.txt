@@ -1,0 +1,3 @@
+The file stats.py has a function average(nums) that is supposed to return the mean of a
+list of numbers, but it has a bug. Find and fix the bug so that average([1, 2, 3, 4])
+returns 2.5. Do not rewrite the whole file; fix the existing function.

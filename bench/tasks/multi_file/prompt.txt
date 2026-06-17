@@ -1,0 +1,5 @@
+Create two files. First, textutils.py with a function word_count(s) that returns a dict
+mapping each lowercased word to how many times it appears in the string s (split on
+whitespace, strip surrounding punctuation like .,!?;: from each word). Second, report.py
+that imports word_count from textutils and defines top_word(s) which returns the single
+most common word (ties broken alphabetically). Both files must work when imported.

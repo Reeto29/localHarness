@@ -1,0 +1,4 @@
+In geometry.py, the function rectangle_area is wrong: it returns w + h instead of w * h.
+The function circle_area just above it is correct and happens to contain a similar-looking
+line. Fix only rectangle_area so it returns the correct area (width times height). Leave
+circle_area unchanged.

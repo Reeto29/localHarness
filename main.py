@@ -37,8 +37,9 @@ def main():
 
         print(f"\nagent> {answer}\n")
         tok = metrics["tokens"]
-        print(f"  [{metrics['steps']} steps, "
-              f"{tok['prompt']}+{tok['eval']} tokens]\n")
+        total = tok["prompt"] + tok["eval"]
+        print(f"  [{metrics['steps']} steps | "
+              f"{tok['prompt']} prompt + {tok['eval']} output = {total} tokens]\n")
 
     print("bye.")
 
