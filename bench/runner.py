@@ -112,6 +112,9 @@ def run_task(task_id, config_id):
         row["output_tokens"] = tok.get("eval", 0)
         row["coder_prompt_tokens"] = tok.get("coder_prompt", 0)
         row["coder_output_tokens"] = tok.get("coder_eval", 0)
+        # Not a CSV column (DictWriter ignores it); lands in the results JSON
+        # so we can see whether the prompt-growth curve actually flattened.
+        row["prompt_per_step"] = m.get("prompt_per_step", [])
         if result.get("error") and not row["error"]:
             row["agent_status"] = "error"
             row["error"] = result["error"][:300]
@@ -147,7 +150,7 @@ def git_commit():
 def append_row(row):
     new_file = not os.path.exists(SCORES_CSV)
     with open(SCORES_CSV, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        w = csv.DictWriter(f, fieldnames=CSV_FIELDS, extrasaction="ignore")
         if new_file:
             w.writeheader()
         w.writerow(row)

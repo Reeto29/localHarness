@@ -8,7 +8,7 @@ Same dance as the M1 hand-test, but automated:
 import time
 
 from llm import chat, OllamaUnreachable
-from tools import TOOL_SCHEMAS, TOOL_FUNCS, CODER_TOKENS
+from tools import TOOL_SCHEMAS, TOOL_FUNCS, CODER_TOKENS, clip
 
 ORCHESTRATOR = "gemma4:31b-cloud"  # glm-5.2:cloud needs a paid Ollama subscription
 
@@ -35,6 +35,40 @@ MAX_STEPS = 20
 # Give up after this many failed chat() calls in a row (e.g. the model keeps
 # emitting tool-call JSON that Ollama's parser rejects with an HTTP 500).
 MAX_LLM_ERRORS = 3
+
+# Tool results attached to the last N assistant turns are sent verbatim;
+# older ones go out as one-line stubs (see _stub_stale_tool_results).
+KEEP_RECENT_TOOL_RESULTS = 2
+
+# Tool results shorter than this are never stubbed — the stub wouldn't save anything.
+STUB_THRESHOLD_CHARS = 200
+
+
+def _stub_stale_tool_results(messages):
+    """Return a copy of messages for the API where tool results older than the
+    last KEEP_RECENT_TOOL_RESULTS assistant turns are replaced with one-line
+    stubs. Whatever the model concluded from those results is already in its
+    later messages, so resending the raw output every step re-bills dead
+    weight — that's what made history cost grow quadratically. The local
+    `messages` list keeps the full content; only the outgoing copy is stubbed.
+    """
+    cutoff = 0
+    seen = 0
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "assistant":
+            seen += 1
+            if seen == KEEP_RECENT_TOOL_RESULTS:
+                cutoff = i
+                break
+    out = []
+    for i, m in enumerate(messages):
+        content = m.get("content") or ""
+        if (i < cutoff and m.get("role") == "tool"
+                and len(content) > STUB_THRESHOLD_CHARS):
+            m = dict(m, content=(f"[{m.get('tool_name', 'tool')} result elided "
+                                 f"({len(content)} chars); re-run the tool if needed]"))
+        out.append(m)
+    return out
 
 
 def needs_confirm(name, args):
@@ -75,6 +109,7 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
     metrics = {
         "steps": 0,
         "tokens": {"prompt": 0, "eval": 0, "coder_prompt": 0, "coder_eval": 0},
+        "prompt_per_step": [],  # growth curve; flat while history grows = truncation
         "tools": {},          # name -> {"ok": n, "err": n}
         "llm_errors": 0,
         "stopped_reason": None,
@@ -104,7 +139,7 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
 
         metrics["steps"] += 1
         try:
-            body = chat(model, messages, tools=tool_schemas,
+            body = chat(model, _stub_stale_tool_results(messages), tools=tool_schemas,
                         options={"temperature": 0, "num_ctx": NUM_CTX})
         except OllamaUnreachable:
             raise  # server is down; corrective re-prompts can't help
@@ -130,6 +165,7 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
 
         metrics["tokens"]["prompt"] += body.get("prompt_eval_count", 0) or 0
         metrics["tokens"]["eval"] += body.get("eval_count", 0) or 0
+        metrics["prompt_per_step"].append(body.get("prompt_eval_count", 0) or 0)
 
         reply = body["message"]
         messages.append(reply)  # record what the model said (text or tool calls)
@@ -161,7 +197,9 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
             ok = not str(result).startswith(("ERROR", "DENIED", "FAILED"))
             record_tool(name, ok)
 
-            tool_msg = {"role": "tool", "tool_name": name, "content": str(result)}
+            # Single choke point: no tool result enters history unbounded,
+            # whatever the tool. (clip keeps head+tail, marks what it cut.)
+            tool_msg = {"role": "tool", "tool_name": name, "content": clip(str(result))}
             # Echo the call id back so the model can match results to calls
             # (matters when it makes several tool calls in one turn).
             if call.get("id"):

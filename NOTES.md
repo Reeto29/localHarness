@@ -97,6 +97,25 @@ context and cut off the task text.
 first hint of what the coder round-trip actually costs on easy tasks. Also: the review
 was worth it purely for the exit-0 string parsing catch. Measure twice.
 
+### 9. Phase 1: context hygiene
+
+One clip() choke point in the loop (head+tail, so traceback tails survive), read_file
+line slices, grep capped at 50 hits, and stale-result stubbing: tool outputs older than
+the last 2 assistant turns go to the API as one-line stubs while local history stays
+complete. Also started logging prompt tokens per step so growth is visible. The review
+pass caught that the coder's verify-failure feedback was still head-only truncated
+(check[:800]) — the error line at the end of the traceback was being cut in exactly the
+path where retries need it.
+
+**Takeaway:** ran the full 8-task bench and expr_eval PASSED for the first time: 3 steps,
+~12.4k tokens total (5.5k orch + 6.9k coder), 107s. The only prior attempt was 0/1 at
+141k tokens, hard-killed after 15+ minutes. Prompt-per-step curve on it: 1173 → 1447 →
+1953, gentle and linear instead of quadratic. Whole suite: 8/8, 42.8k tokens including
+coder, 204s wall. Caveat I shouldn't forget: this isn't a clean A/B for context hygiene
+alone — the coder swap to gpt-oss and the delegate verify loop landed since the 141k run,
+so several variables moved. n=1 too. But the direction is unambiguous and now every
+future change can be measured properly.
+
 ---
 
 ## Things I keep thinking about
@@ -114,11 +133,9 @@ was worth it purely for the exit-0 string parsing catch. Measure twice.
   blocks in training and almost no Ollama tool-call JSON. Asking the model nicely to
   avoid heredocs is a stopgap; this feels like the actual fix.
 
-- Context is the budget and I'm not managing it. Every tool result enters history
-  verbatim and stays forever. read_file has no size cap (run_bash does, 6k chars, but it
-  cuts the tail, which is where the actual error in a traceback lives). Fix order from the
-  research: truncate everything at one choke point in the loop, then stub out stale tool
-  results, then think about real compaction.
+- ~~Context is the budget and I'm not managing it~~ phase 1 shipped the choke point,
+  slices, grep cap, and stale-result stubbing. Real compaction (summarize-and-restart)
+  stays on the shelf until a task actually needs it.
 
 - ~~My metrics have been lying to me~~ fixed in phase 0: coder tokens counted, wall-clock
   recorded, hung tasks killable. A/B comparisons are trustworthy now.
@@ -140,8 +157,8 @@ was worth it purely for the exit-0 string parsing catch. Measure twice.
 Working plan (phases, biggest wins first):
 
 1. ~~Make runs survivable~~ done, see method 8.
-2. Context hygiene: one truncation choke point, read_file slices, grep cap, stale-result
-   stubbing.
+2. ~~Context hygiene~~ done, see method 9. expr_eval went from 141k-token failure to a
+   12.4k-token pass.
 3. Text-action mode (the mini-swe-agent protocol), then the real experiment: split vs
    single-gptoss vs single-gemma, 3 runs each, on the bench.
 4. Orchestrator-level verify loop plus an interface contract (PLAN.md with exact shared

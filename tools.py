@@ -31,11 +31,25 @@ CODER_SYSTEM = (
 
 # --- the functions ------------------------------------------------------------
 
-def read_file(path):
-    """Return the contents of a text file, or an error string."""
+def read_file(path, start_line=None, end_line=None):
+    """Return the contents of a text file, or an error string.
+
+    start_line/end_line (1-indexed, inclusive) read just a slice, with a
+    header saying where the slice sits — so the model can pull the region
+    it needs instead of paying for the whole file every time."""
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return f.read()
+            text = f.read()
+        if start_line is None and end_line is None:
+            return text
+        lines = text.splitlines()
+        total = len(lines)
+        s = max(1, int(start_line or 1))
+        e = min(total, int(end_line or total))
+        if s > total:
+            return f"ERROR: start_line {s} is past the end of {path} ({total} lines)"
+        body = "\n".join(lines[s - 1:e])
+        return f"[lines {s}-{e} of {total} in {path}]\n{body}"
     except FileNotFoundError:
         return f"ERROR: file not found: {path}"
     except UnicodeDecodeError:
@@ -91,9 +105,14 @@ def list_dir(path="."):
         return f"ERROR: could not list {path}: {e}"
 
 
+GREP_MAX_HITS = 50
+
+
 def grep(pattern, path="."):
-    """Search for a literal string in files under path. Returns file:line: matches."""
+    """Search for a literal string in files under path. Returns file:line: matches
+    (capped at GREP_MAX_HITS so one broad pattern can't flood the context)."""
     hits = []
+    count = 0
     try:
         for root, dirs, files in os.walk(path):
             # skip noise
@@ -104,9 +123,14 @@ def grep(pattern, path="."):
                     with open(fpath, "r", encoding="utf-8") as f:
                         for i, line in enumerate(f, 1):
                             if pattern in line:
-                                hits.append(f"{fpath}:{i}: {line.rstrip()}")
+                                count += 1
+                                if count <= GREP_MAX_HITS:
+                                    hits.append(f"{fpath}:{i}: {line.rstrip()}")
                 except (UnicodeDecodeError, OSError):
                     continue  # skip binary / unreadable files
+        if count > GREP_MAX_HITS:
+            hits.append(f"...[{count - GREP_MAX_HITS} more matches omitted; "
+                        "narrow your pattern]")
         return "\n".join(hits) if hits else f"(no matches for {pattern!r})"
     except Exception as e:
         return f"ERROR: grep failed: {e}"
@@ -158,12 +182,10 @@ def delegate_to_coder(task, target_file, verify_command=None):
         if attempt == 1:
             prompt = task
         else:
-            current = read_file(target_file)
             # Cap the embedded file so the retry prompt fits the coder's
             # 8192 num_ctx. Ollama truncates from the FRONT, so an oversized
             # prompt would cut off the task itself and make retries worse.
-            if len(current) > 6000:
-                current = current[:3000] + "\n...[middle omitted]...\n" + current[-3000:]
+            current = clip(read_file(target_file))
             prompt = (
                 f"{task}\n\nYour previous attempt (in {target_file}):\n"
                 f"{current}\n\nIt FAILED verification with:\n{last_err}\n\n"
@@ -196,11 +218,22 @@ def delegate_to_coder(task, target_file, verify_command=None):
             return f"ERROR: could not run verify_command: {e}"
         if rc == 0:
             return f"wrote {n} lines to {target_file}; verification passed on attempt {attempt}"
-        last_err = check[:800]
+        last_err = clip(check, 800)  # head+tail: the error line is at the END
 
     # FAILED prefix so the agent loop counts this as a tool failure in metrics.
     return (f"FAILED: wrote {target_file} but verification failed after "
             f"{CODER_MAX_TRIES} attempts. Last error:\n{last_err}")
+
+
+def clip(text, limit=6000):
+    """Cap text at limit chars, keeping head AND tail. The tail matters:
+    in a traceback the actual error is the last line, and head-only
+    truncation used to cut exactly that off."""
+    if len(text) <= limit:
+        return text
+    half = limit // 2
+    omitted = len(text) - 2 * half
+    return f"{text[:half]}\n...[{omitted} chars omitted]...\n{text[-half:]}"
 
 
 def _run(command):
@@ -210,10 +243,7 @@ def _run(command):
         command, shell=True, capture_output=True, text=True, timeout=120,
     )
     out = (proc.stdout or "") + (proc.stderr or "")
-    out = out.strip() or "(no output)"
-    if len(out) > 6000:
-        out = out[:6000] + "\n...[truncated]"
-    return proc.returncode, out
+    return proc.returncode, clip(out.strip() or "(no output)")
 
 
 def run_bash(command):
@@ -241,8 +271,11 @@ def _fn(name, description, properties, required):
 
 
 TOOL_SCHEMAS = [
-    _fn("read_file", "Read and return the full contents of a text file.",
-        {"path": {"type": "string", "description": "Path to the file, relative to the working dir."}},
+    _fn("read_file", "Read a text file. Prefer a line slice for big files; "
+        "a slice comes back with a 'lines X-Y of N' header.",
+        {"path": {"type": "string", "description": "Path to the file, relative to the working dir."},
+         "start_line": {"type": "integer", "description": "Optional first line to read (1-indexed)."},
+         "end_line": {"type": "integer", "description": "Optional last line to read (inclusive)."}},
         ["path"]),
 
     _fn("write_file", "Write (or overwrite) a file with the given content. Creates parent dirs.",
