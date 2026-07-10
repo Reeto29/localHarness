@@ -1,0 +1,16 @@
+Build a small infix arithmetic expression evaluator across two files.
+
+File 1, tokenizer.py: a function tokenize(expr) that turns a string into a list of tokens.
+Numbers become floats (support integers and decimals like 3.5). The operators + - * / and
+parentheses ( ) each become their own token. Whitespace is ignored. Any unrecognized
+character must raise ValueError.
+
+File 2, calc.py: it imports tokenize from tokenizer and defines evaluate(expr) which returns
+the numeric result as a float. Requirements:
+- Standard operator precedence: * and / bind tighter than + and -.
+- Parentheses override precedence and may be nested.
+- Support unary minus, e.g. "-3", "2 * -3", and "-(1 + 2)".
+- Division by zero must raise ZeroDivisionError.
+- Malformed input (e.g. "2 +", "1 2", "(1 + 2", ")") must raise ValueError.
+
+Both files must work when imported. Get the precedence and unary-minus cases right.

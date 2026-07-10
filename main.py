@@ -7,10 +7,12 @@ Type 'exit' or Ctrl-D to quit.
 from agent import run
 
 
-def confirm_bash(name, args):
-    """Ask the user before running a shell command. Returns True to allow."""
-    command = args.get("command", "")
-    print(f"\n  the agent wants to run:  {command}")
+def confirm_tool(name, args):
+    """Ask the user before a gated tool call runs. Returns True to allow."""
+    if name == "delegate_to_coder":
+        print(f"\n  the coder will verify with:  {args.get('verify_command', '')}")
+    else:
+        print(f"\n  the agent wants to run:  {args.get('command', '')}")
     answer = input("  allow? [y/N] ").strip().lower()
     return answer in ("y", "yes")
 
@@ -30,16 +32,18 @@ def main():
             break
 
         try:
-            answer, metrics = run(task, confirm=confirm_bash)
+            answer, metrics = run(task, confirm=confirm_tool)
         except Exception as e:
             print(f"\n[error] {e}\n")
             continue
 
         print(f"\nagent> {answer}\n")
         tok = metrics["tokens"]
-        total = tok["prompt"] + tok["eval"]
-        print(f"  [{metrics['steps']} steps | "
-              f"{tok['prompt']} prompt + {tok['eval']} output = {total} tokens]\n")
+        total = tok["prompt"] + tok["eval"] + tok["coder_prompt"] + tok["coder_eval"]
+        line = f"  [{metrics['steps']} steps | orchestrator {tok['prompt']}+{tok['eval']}"
+        if tok["coder_prompt"] or tok["coder_eval"]:
+            line += f" | coder {tok['coder_prompt']}+{tok['coder_eval']}"
+        print(line + f" | {total} tokens total]\n")
 
     print("bye.")
 

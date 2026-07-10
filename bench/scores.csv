@@ -1,2 +1,4 @@
-timestamp,commit,tasks,passed,pass_rate,total_steps,total_tokens
-2026-06-17T15:25:51,6db149b,7,7,1.00,36,56841
+timestamp,commit,config,task,passed,agent_status,steps,prompt_tokens,output_tokens,coder_prompt_tokens,coder_output_tokens,wall_secs,error
+2026-07-10T14:01:14,8ecbdc2,split,fizzbuzz,1,done,2,2126,236,231,280,31.4,
+2026-07-10T14:06:39,8ecbdc2,split,fizzbuzz,1,done,2,2133,276,223,289,16.2,
+2026-07-10T14:06:42,8ecbdc2,gemma-direct,fizzbuzz,1,done,3,2286,321,0,0,3.0,

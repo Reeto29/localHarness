@@ -11,6 +11,10 @@ import urllib.error
 OLLAMA_HOST = "http://localhost:11434"
 
 
+class OllamaUnreachable(RuntimeError):
+    """The server itself is down/unreachable — retrying a request won't help."""
+
+
 def chat(model, messages, tools=None, stream=False, options=None):
     """Call Ollama's /api/chat. Returns the full parsed response body.
 
@@ -45,7 +49,7 @@ def chat(model, messages, tools=None, stream=False, options=None):
         detail = e.read().decode("utf-8", "replace")
         raise RuntimeError(f"Ollama HTTP {e.code}: {detail}") from e
     except urllib.error.URLError as e:
-        raise RuntimeError(
+        raise OllamaUnreachable(
             f"Could not reach Ollama at {OLLAMA_HOST}. Is `ollama serve` running? ({e})"
         ) from e
 
@@ -53,10 +57,11 @@ def chat(model, messages, tools=None, stream=False, options=None):
 
 
 def generate(model, prompt, system=None, options=None):
-    """One-shot completion (no tools, no history). Returns text."""
+    """One-shot completion (no tools, no history). Returns the full response
+    body: text at body["message"]["content"], token counts at the top level
+    (so callers can account for what the call cost)."""
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    body = chat(model, messages, options=options)
-    return body["message"].get("content", "")
+    return chat(model, messages, options=options)

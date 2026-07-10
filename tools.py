@@ -9,12 +9,18 @@ TOOL_FUNCS    -> name -> function, so the loop can dispatch a tool call
 """
 
 import os
+import re
 import subprocess
 
 from llm import generate
 
-# The small local model that actually writes code.
-CODER_MODEL = "qwen2.5-coder:latest"
+# The local model that actually writes code. Runs on the M4 (24GB), ~13GB resident.
+CODER_MODEL = "gpt-oss:20b"
+
+# Running tally of the coder's token usage. delegate_to_coder adds to it;
+# agent.run() snapshots it so metrics include the coder's cost (it used to be
+# invisible, which quietly biased every split-vs-single comparison).
+CODER_TOKENS = {"prompt": 0, "eval": 0}
 
 CODER_SYSTEM = (
     "You are a focused coding model. You are given one small, self-contained task. "
@@ -106,34 +112,115 @@ def grep(pattern, path="."):
         return f"ERROR: grep failed: {e}"
 
 
-def delegate_to_coder(task):
-    """Send one focused coding task to the small local coder model. Returns code.
+def _strip_reasoning(text):
+    """Remove <think>...</think> blocks that reasoning models emit before the answer.
 
-    The coder gets a fresh one-shot prompt with no conversation history, so the
-    `task` string must be self-contained: say exactly what to write, with any
-    signatures, names, and constraints the code needs.
+    Handles a closed block, and the case where only the closing tag survives
+    (some models omit the opening <think> and dump reasoning, then </think>, then code).
     """
-    try:
-        code = generate(
-            CODER_MODEL, task, system=CODER_SYSTEM,
-            options={"temperature": 0, "num_ctx": 8192},
-        )
-        return code.strip() or "ERROR: coder returned nothing"
-    except Exception as e:
-        return f"ERROR: coder failed: {e}"
+    # full <think>...</think> blocks
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    # dangling close tag: keep only what comes after the last </think>
+    if "</think>" in text.lower():
+        idx = text.lower().rfind("</think>")
+        text = text[idx + len("</think>"):]
+    return text.strip()
+
+
+def _strip_fences(text):
+    """Strip reasoning blocks, then any ```lang ... ``` markdown fences."""
+    t = _strip_reasoning(text)
+    if t.startswith("```"):
+        lines = t.splitlines()
+        lines = lines[1:]                       # drop opening ```lang
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]                  # drop closing ```
+        t = "\n".join(lines)
+    return t.strip()
+
+
+CODER_MAX_TRIES = 3
+
+
+def delegate_to_coder(task, target_file, verify_command=None):
+    """Worker-coder sub-loop. The local coder writes target_file; the harness
+    verifies and retries. Returns only a SUMMARY (never the code) so the caller's
+    context stays small.
+
+    task:           self-contained description of what to write.
+    target_file:    path the code is written to.
+    verify_command: optional shell command that exits 0 when the code is correct
+                    (e.g. a python -c with asserts). On non-zero, the error is fed
+                    back to the coder and it retries. If omitted, no verification.
+    """
+    last_err = ""
+    for attempt in range(1, CODER_MAX_TRIES + 1):
+        if attempt == 1:
+            prompt = task
+        else:
+            current = read_file(target_file)
+            # Cap the embedded file so the retry prompt fits the coder's
+            # 8192 num_ctx. Ollama truncates from the FRONT, so an oversized
+            # prompt would cut off the task itself and make retries worse.
+            if len(current) > 6000:
+                current = current[:3000] + "\n...[middle omitted]...\n" + current[-3000:]
+            prompt = (
+                f"{task}\n\nYour previous attempt (in {target_file}):\n"
+                f"{current}\n\nIt FAILED verification with:\n{last_err}\n\n"
+                f"Return the corrected FULL contents of {target_file}."
+            )
+        try:
+            body = generate(
+                CODER_MODEL, prompt, system=CODER_SYSTEM,
+                options={"temperature": 0, "num_ctx": 8192},
+            )
+        except Exception as e:
+            return f"ERROR: coder failed: {e}"
+        CODER_TOKENS["prompt"] += body.get("prompt_eval_count", 0) or 0
+        CODER_TOKENS["eval"] += body.get("eval_count", 0) or 0
+        code = _strip_fences(body["message"].get("content", ""))
+        if not code:
+            return "ERROR: coder returned nothing"
+
+        w = write_file(target_file, code)
+        if w.startswith("ERROR"):
+            return w
+        n = len(code.splitlines())
+
+        if not verify_command:
+            return f"wrote {n} lines to {target_file} (no verification requested)"
+
+        try:
+            rc, check = _run(verify_command)
+        except Exception as e:
+            return f"ERROR: could not run verify_command: {e}"
+        if rc == 0:
+            return f"wrote {n} lines to {target_file}; verification passed on attempt {attempt}"
+        last_err = check[:800]
+
+    # FAILED prefix so the agent loop counts this as a tool failure in metrics.
+    return (f"FAILED: wrote {target_file} but verification failed after "
+            f"{CODER_MAX_TRIES} attempts. Last error:\n{last_err}")
+
+
+def _run(command):
+    """Run a shell command. Returns (returncode, combined stdout+stderr).
+    Raises on timeout/OS errors; callers decide how to present those."""
+    proc = subprocess.run(
+        command, shell=True, capture_output=True, text=True, timeout=120,
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    out = out.strip() or "(no output)"
+    if len(out) > 6000:
+        out = out[:6000] + "\n...[truncated]"
+    return proc.returncode, out
 
 
 def run_bash(command):
     """Run a shell command, return combined stdout+stderr (truncated)."""
     try:
-        proc = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=120,
-        )
-        out = (proc.stdout or "") + (proc.stderr or "")
-        out = out.strip() or "(no output)"
-        if len(out) > 6000:
-            out = out[:6000] + "\n...[truncated]"
-        return f"exit {proc.returncode}\n{out}"
+        rc, out = _run(command)
+        return f"exit {rc}\n{out}"
     except subprocess.TimeoutExpired:
         return "ERROR: command timed out after 120s"
     except Exception as e:
@@ -183,12 +270,18 @@ TOOL_SCHEMAS = [
         ["command"]),
 
     _fn("delegate_to_coder",
-        "Delegate one small, self-contained coding task to a dedicated coding model and "
-        "get back the code. Use this to write functions/files instead of writing code "
-        "yourself. The task must be fully specified: it gets no conversation history.",
+        "Delegate a coding task to a dedicated coder that writes the file and self-verifies. "
+        "It writes the code to target_file and, if you give a verify_command, runs it and "
+        "retries on failure. You get back only a short summary, never the code itself. Use "
+        "this to write code instead of writing it yourself. The task gets no conversation "
+        "history, so it must be fully specified.",
         {"task": {"type": "string", "description": "A complete, self-contained description "
-                  "of the code to write, including signatures, names, and constraints."}},
-        ["task"]),
+                  "of the code to write, including signatures, names, and constraints."},
+         "target_file": {"type": "string", "description": "Path the code should be written to."},
+         "verify_command": {"type": "string", "description": "Optional shell command that "
+                  "exits 0 when the code is correct, e.g. a python -c with asserts. The coder "
+                  "retries using the error if it fails."}},
+        ["task", "target_file"]),
 ]
 
 
