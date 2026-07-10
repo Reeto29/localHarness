@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>localHarness · bench board</title>
+<style>
+  :root { --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e;
+    --muted:#898781; --grid:#e1e0d9; --baseline:#c3c2b7; --ring:rgba(11,11,11,0.10);
+    --orch:#2a78d6; --coder:#1baf7a; --good:#0ca30c; --good-text:#006300;
+    --critical:#d03b3b; --track:#f0efec; }
+  @media (prefers-color-scheme: dark) { :root { --page:#0d0d0d; --surface:#1a1a19;
+    --ink:#fff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --baseline:#383835;
+    --ring:rgba(255,255,255,0.10); --orch:#3987e5; --coder:#199e70; --good:#0ca30c;
+    --good-text:#0ca30c; --critical:#d03b3b; --track:#262624; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--ink);
+    font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .mono,h1,h2,.tile-value,.val,.axis,.chip,.pill,th,td.num
+    { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+  .wrap { max-width:960px; margin:0 auto; padding:40px 24px 64px; }
+  header { display:flex; flex-wrap:wrap; align-items:baseline; gap:12px; margin-bottom:8px; }
+  h1 { font-size:22px; font-weight:600; margin:0; letter-spacing:-0.01em; }
+  .chip { font-size:12px; padding:3px 10px; border-radius:999px;
+    border:1px solid var(--ring); color:var(--ink-2); background:var(--surface); }
+  .chip.pass { color:var(--good-text); border-color:var(--good); }
+  .sub { color:var(--ink-2); margin:0 0 28px; max-width:62ch; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+    gap:12px; margin-bottom:28px; }
+  .tile { background:var(--surface); border:1px solid var(--ring); border-radius:10px;
+    padding:14px 16px 12px; }
+  .tile-label { font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
+    color:var(--muted); }
+  .tile-value { font-size:28px; font-weight:600; margin:2px 0 0; }
+  .tile-note { font-size:12px; color:var(--ink-2); margin-top:2px; }
+  .up-good { color:var(--good-text); }
+  section { margin-bottom:32px; }
+  h2 { font-size:14px; font-weight:600; letter-spacing:0.02em; margin:0 0 4px; }
+  .h2-note { font-size:13px; color:var(--ink-2); margin:0 0 14px; max-width:68ch; }
+  .panel { background:var(--surface); border:1px solid var(--ring); border-radius:10px;
+    padding:18px 18px 16px; }
+  .ba-row { display:grid; grid-template-columns:110px 1fr; gap:10px; align-items:center;
+    margin:10px 0; }
+  .ba-head { font-size:13px; }
+  .ba-head .date { color:var(--muted); font-size:11.5px; display:block; }
+  .ba-track { position:relative; height:26px; }
+  .ba-bar { height:18px; margin-top:4px; border-radius:0 4px 4px 0;
+    background:var(--orch); min-width:3px; }
+  .ba-val { position:absolute; top:3px; font-size:12.5px; color:var(--ink-2);
+    white-space:nowrap; }
+  .pill { display:inline-block; font-size:11px; padding:1px 8px; border-radius:999px;
+    margin-left:6px; border:1px solid; }
+  .pill.pass { color:var(--good-text); border-color:var(--good); }
+  .pill.fail { color:var(--critical); border-color:var(--critical); }
+  .split2 { display:grid; grid-template-columns:1.7fr 1fr; gap:14px; }
+  @media (max-width:720px) { .split2 { grid-template-columns:1fr; } }
+  .legend { display:flex; gap:18px; font-size:12.5px; color:var(--ink-2);
+    margin-bottom:12px; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .swatch { width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .task-row { display:grid; grid-template-columns:130px 1fr 74px; gap:10px;
+    align-items:center; padding:3px 4px; border-radius:6px; cursor:default; }
+  .task-row:hover { background:var(--track); }
+  .task-row:focus-visible, summary:focus-visible { outline:2px solid var(--orch);
+    outline-offset:2px; }
+  .task-name { font-size:13px; text-align:right; color:var(--ink-2); overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .task-track { display:flex; height:16px; }
+  .seg { height:16px; min-width:2px; }
+  .seg.orch { background:var(--orch); border-radius:3px 0 0 3px; }
+  .seg.coder { background:var(--coder); border-radius:0 4px 4px 0; margin-left:2px; }
+  .val { font-size:12.5px; color:var(--ink-2); font-variant-numeric:tabular-nums; }
+  .axis { display:grid; grid-template-columns:130px 1fr 74px; gap:10px; margin-top:6px; }
+  .axis-track { position:relative; height:16px; font-size:10.5px; color:var(--muted); }
+  .axis-track span { position:absolute; transform:translateX(-50%); }
+  .axis-track .t0 { transform:none; }
+  .curve-svg { width:100%; height:auto; display:block; }
+  .curve-caption { font-size:12px; color:var(--muted); margin-top:6px; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; }
+  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.07em;
+    color:var(--muted); font-weight:500; padding:6px 10px;
+    border-bottom:1px solid var(--grid); }
+  td { padding:8px 10px; border-bottom:1px solid var(--grid); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  td.num,th.num { text-align:right; font-variant-numeric:tabular-nums;
+    white-space:nowrap; }
+  .note { font-size:12px; color:var(--muted); margin-top:10px; max-width:70ch; }
+  details { margin-top:12px; }
+  summary { font-size:12.5px; color:var(--ink-2); cursor:pointer; }
+  footer { color:var(--muted); font-size:12.5px; border-top:1px solid var(--grid);
+    padding-top:14px; }
+  #tip { position:fixed; pointer-events:none; z-index:10; display:none;
+    background:var(--ink); color:var(--page); white-space:pre;
+    font:12px/1.5 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    padding:8px 10px; border-radius:6px; max-width:260px; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>localHarness · bench board</h1>
+    <span class="chip pass">latest: 8/8 pass</span>
+    <span class="chip">commit 567b910</span>
+    <span class="chip">config: split</span>
+  </header>
+  <p class="sub">Eval progress for the Ollama harness. Orchestrator: gemma4:31b-cloud.
+  Coder: gpt-oss:20b, local. Regenerated after each bench run.</p>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="tile-label">Pass rate</div>
+      <div class="tile-value up-good">8/8</div>
+      <div class="tile-note">latest full run</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">expr_eval tokens</div>
+      <div class="tile-value">12,372</div>
+      <div class="tile-note"><span class="up-good">−91%</span> vs the 141,264 failure</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Suite total tokens</div>
+      <div class="tile-value">42,755</div>
+      <div class="tile-note">coder cost included</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Suite wall clock</div>
+      <div class="tile-value">204s</div>
+      <div class="tile-note">8 tasks, budgets on</div>
+    </div>
+  </div>
+
+  <section>
+    <h2>The expr_eval turnaround</h2>
+    <p class="h2-note">The hard task. The first attempt drowned in its own transcript;
+    with budgets, error recovery, and context hygiene it passes.</p>
+    <div class="split2">
+      <div class="panel">
+        <div class="ba-row">
+          <div class="ba-head">first try<span class="date">before phase 0</span></div>
+          <div class="ba-track">
+            <div class="ba-bar" style="width:100%;background:var(--critical);"></div>
+            <div class="ba-val" style="right:4px;color:#fff;">141,264 tok · fail</div>
+          </div>
+        </div>
+        <div class="ba-row">
+          <div class="ba-head">latest<span class="date">phase 0+1</span></div>
+          <div class="ba-track">
+            <div class="ba-bar" style="width:8.76%;"></div>
+            <div class="ba-val" style="left:calc(8.76% + 8px);">12,372 tok ·
+              3 steps · <span class="pill pass">pass ✓</span>
+              <span class="up-good">−91%</span></div>
+          </div>
+        </div>
+        <div class="ba-row">
+          <div class="ba-head"></div>
+          <div class="ba-track" style="border-top:1px solid var(--baseline);height:14px;">
+            <div class="ba-val" style="left:0;top:1px;color:var(--muted);font-size:10.5px;">0</div>
+            <div class="ba-val" style="right:0;top:1px;color:var(--muted);font-size:10.5px;">141,264 tokens</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+      <h2 style="font-size:12.5px;">Prompt tokens per step, expr_eval</h2>
+      <svg class="curve-svg" viewBox="0 0 300 150" role="img"
+           aria-label="Prompt tokens per step: 1173, 1447, 1953">
+        <line x1="36" y1="120" x2="290" y2="120" stroke="var(--baseline)" stroke-width="1"/>
+        <line x1="36" y1="70" x2="290" y2="70" stroke="var(--grid)" stroke-width="1"/>
+        <line x1="36" y1="20" x2="290" y2="20" stroke="var(--grid)" stroke-width="1"/>
+        <text x="30" y="124" text-anchor="end" font-size="9" fill="var(--muted)">0</text>
+        <text x="30" y="74" text-anchor="end" font-size="9" fill="var(--muted)">1,000</text>
+        <text x="30" y="24" text-anchor="end" font-size="9" fill="var(--muted)">2,000</text>
+        <polyline points="70.0,61.3 163.0,47.6 256.0,22.3" fill="none" stroke="var(--orch)" stroke-width="2"/>
+        <circle cx="70.0" cy="61.3" r="4" fill="var(--surface)" stroke="var(--orch)" stroke-width="2"/><text x="70.0" y="53.3" text-anchor="middle" font-size="9.5" fill="var(--ink-2)">1,173</text><circle cx="163.0" cy="47.6" r="4" fill="var(--surface)" stroke="var(--orch)" stroke-width="2"/><text x="163.0" y="39.6" text-anchor="middle" font-size="9.5" fill="var(--ink-2)">1,447</text><circle cx="256.0" cy="22.3" r="4.5" fill="var(--orch)" stroke="var(--orch)" stroke-width="2"/><text x="256.0" y="14.3" text-anchor="middle" font-size="9.5" fill="var(--ink-2)">1,953</text><text x="70.0" y="134" text-anchor="middle" font-size="9" fill="var(--muted)">step 1</text><text x="163.0" y="134" text-anchor="middle" font-size="9" fill="var(--muted)">step 2</text><text x="256.0" y="134" text-anchor="middle" font-size="9" fill="var(--muted)">step 3</text>
+      </svg>
+      <p class="curve-caption">Flat-ish and linear means the history stubbing is doing its job.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Latest run, task by task</h2>
+    <p class="h2-note">Total tokens per task, split by who spent them. Hover a row for
+    steps and wall clock.</p>
+    <div class="panel">
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--orch);"></span>orchestrator (cloud)</span>
+        <span><span class="swatch" style="background:var(--coder);"></span>coder (local)</span>
+      </div>
+      <div id="taskbars">
+        <div class="task-row" tabindex="0" data-tip="expr_eval&#10;orchestrator 5,453 tok&#10;coder 6,919 tok&#10;3 steps · 107.0s">
+          <div class="task-name">expr_eval</div>
+          <div class="task-track">
+            <div class="seg orch" style="width:44.08%"></div>
+            <div class="seg coder" style="width:55.92%"></div>
+          </div>
+          <div class="val">12,372</div>
+        </div>
+        <div class="task-row" tabindex="0" data-tip="fix_suite&#10;orchestrator 5,480 tok&#10;coder 960 tok&#10;4 steps · 20.9s">
+          <div class="task-name">fix_suite</div>
+          <div class="task-track">
+            <div class="seg orch" style="width:44.29%"></div>
+            <div class="seg coder" style="width:7.76%"></div>
+          </div>
+          <div class="val">6,440</div>
+        </div>
+        <div class="task-row" tabindex="0" data-tip="fix_bug&#10;orchestrator 4,849 tok&#10;coder 596 tok&#10;4 steps · 11.5s">
+          <div class="task-name">fix_bug</div>
+          <div class="task-track">
+            <div class="seg orch" style="width:39.19%"></div>
+            <div class="seg coder" style="width:4.82%"></div>
+          </div>
+          <div class="val">5,445</div>
+        </div>
+        <div class="task-row" tabindex="0" data-tip="multi_file&#10;orchestrator 4,257 tok&#10;coder 934 tok&#10;3 steps · 17.0s">
+          <div class="task-name">multi_file</div>
+          <div class="task-track">
+            <div class="seg orch" style="width:34.41%"></div>
+            <div class="seg coder" style="width:7.55%"></div>
+          </div>
+          <div class="val">5,191</div>
+        </div>
+        <div class="task-row" tabindex="0" data-tip="edit_dup&#10;orchestrator 3,636 tok&#10;coder 386 tok&#10;3 steps · 18.6s">
+          <div class="task-name">edit_dup</div>
+          <div class="task-track">
+            <div class="seg orch" style="width:29.39%"></div>
+            <div class="seg coder" style="width:3.12%"></div>
+          </div>
+          <div class="val">4,022</div>
+        </div>
+        <div class="task-row" tabindex="0" data-tip="merge_intervals&#10;orchestrator 2,782 tok&#10;coder 582 tok&#10;2 steps · 10.9s">
+          <div class="task-name">merge_intervals</div>
+          <div class="task-track">
+            <div class="seg orch" style="width:22.49%"></div>
+            <div class="seg coder" style="width:4.70%"></div>
+          </div>
+          <div class="val">3,364</div>
+        </div>
+        <div class="task-row" tabindex="0" data-tip="fizzbuzz&#10;orchestrator 2,543 tok&#10;coder 530 tok&#10;2 steps · 9.5s">
+          <div class="task-name">fizzbuzz</div>
+          <div class="task-track">
+            <div class="seg orch" style="width:20.55%"></div>
+            <div class="seg coder" style="width:4.28%"></div>
+          </div>
+          <div class="val">3,073</div>
+        </div>
+        <div class="task-row" tabindex="0" data-tip="palindrome&#10;orchestrator 2,431 tok&#10;coder 417 tok&#10;2 steps · 8.5s">
+          <div class="task-name">palindrome</div>
+          <div class="task-track">
+            <div class="seg orch" style="width:19.65%"></div>
+            <div class="seg coder" style="width:3.37%"></div>
+          </div>
+          <div class="val">2,848</div>
+        </div></div>
+      <div class="axis"><div></div>
+        <div class="axis-track"><span class="t0" style="left:0;">0</span><span style="left:32.3%;">4k</span><span style="left:64.7%;">8k</span><span style="left:97.0%;">12k</span></div>
+      <div></div></div>
+      <details><summary>Table view</summary>
+        <table>
+          <thead><tr><th>task</th><th class="num">orch tok</th><th class="num">coder tok</th>
+          <th class="num">total</th><th class="num">steps</th><th class="num">wall</th></tr></thead>
+          <tbody><tr><td>expr_eval</td><td class='num'>5,453</td><td class='num'>6,919</td><td class='num'>12,372</td><td class='num'>3</td><td class='num'>107.0s</td></tr><tr><td>fix_suite</td><td class='num'>5,480</td><td class='num'>960</td><td class='num'>6,440</td><td class='num'>4</td><td class='num'>20.9s</td></tr><tr><td>fix_bug</td><td class='num'>4,849</td><td class='num'>596</td><td class='num'>5,445</td><td class='num'>4</td><td class='num'>11.5s</td></tr><tr><td>multi_file</td><td class='num'>4,257</td><td class='num'>934</td><td class='num'>5,191</td><td class='num'>3</td><td class='num'>17.0s</td></tr><tr><td>edit_dup</td><td class='num'>3,636</td><td class='num'>386</td><td class='num'>4,022</td><td class='num'>3</td><td class='num'>18.6s</td></tr><tr><td>merge_intervals</td><td class='num'>2,782</td><td class='num'>582</td><td class='num'>3,364</td><td class='num'>2</td><td class='num'>10.9s</td></tr><tr><td>fizzbuzz</td><td class='num'>2,543</td><td class='num'>530</td><td class='num'>3,073</td><td class='num'>2</td><td class='num'>9.5s</td></tr><tr><td>palindrome</td><td class='num'>2,431</td><td class='num'>417</td><td class='num'>2,848</td><td class='num'>2</td><td class='num'>8.5s</td></tr></tbody>
+        </table>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <h2>Run history</h2>
+    <div class="panel" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>date</th><th>run</th><th>commit</th><th>result</th>
+        <th class="num">steps</th><th class="num">tokens</th></tr></thead>
+        <tbody><tr><td class='mono'>2026-06-17</td><td>legacy · 7 tasks</td><td class='mono'>6db149b</td><td><span class='pill pass'>7/7</span></td><td class='num'>36</td><td class='num'>56,841 *</td></tr><tr><td class='mono'>2026-06-17</td><td>legacy · 7 tasks</td><td class='mono'>8ecbdc2</td><td><span class='pill pass'>7/7</span></td><td class='num'>20</td><td class='num'>25,071 *</td></tr><tr><td class='mono'>2026-06-17</td><td>legacy · 1 task</td><td class='mono'>8ecbdc2</td><td><span class='pill fail'>0/1</span></td><td class='num'>20</td><td class='num'>141,264 *</td></tr><tr><td class='mono'>2026-07-10</td><td>split · 1 task</td><td class='mono'>8ecbdc2</td><td><span class='pill pass'>1/1</span></td><td class='num'>2</td><td class='num'>2,921</td></tr><tr><td class='mono'>2026-07-10</td><td>gemma-direct · 1 task</td><td class='mono'>8ecbdc2</td><td><span class='pill pass'>1/1</span></td><td class='num'>3</td><td class='num'>2,607</td></tr><tr><td class='mono'>2026-07-10</td><td>split · 8 tasks</td><td class='mono'>567b910</td><td><span class='pill pass'>8/8</span></td><td class='num'>23</td><td class='num'>42,755</td></tr></tbody>
+      </table>
+      <p class="note">* Legacy runs (before phase 0) did not count coder tokens, so
+      starred totals undercount their true cost. Compare within eras, not across.</p>
+    </div>
+  </section>
+  <footer>
+    Data: bench/scores.csv. Generated 2026-07-10 by bench/board.py.
+    Refresh with <span class="mono">python3 bench/board.py</span> (runner.py does it automatically).
+  </footer>
+</div>
+<div id="tip"></div>
+<script>
+  const tip = document.getElementById("tip");
+  document.addEventListener("mousemove", e => {
+    const row = e.target.closest(".task-row");
+    if (!row) { tip.style.display = "none"; return; }
+    tip.textContent = row.dataset.tip;
+    tip.style.display = "block";
+    const pad = 14;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    const r = tip.getBoundingClientRect();
+    if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+    if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  });
+</script>
+</body>
+</html>

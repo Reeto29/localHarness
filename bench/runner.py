@@ -190,6 +190,13 @@ def main():
     with open(os.path.join(RESULTS_DIR, f"{stamp}.json"), "w") as f:
         json.dump({"config": args.config, "commit": commit, "rows": rows}, f, indent=2)
 
+    # Regenerate the progress board; a board bug must never fail a bench run.
+    try:
+        import board
+        board.main()
+    except Exception as e:
+        print(f"(board regeneration failed: {e})")
+
 
 if __name__ == "__main__":
     main()
