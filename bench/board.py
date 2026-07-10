@@ -13,12 +13,40 @@ import glob
 import html
 import json
 import os
+import sys
 
 BENCH = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(BENCH)
 SCORES = os.path.join(BENCH, "scores.csv")
 SCORES_V0 = os.path.join(BENCH, "scores_v0.csv")
 RESULTS_DIR = os.path.join(BENCH, "results")
 OUT = os.path.join(BENCH, "board.html")
+
+# Resolve config names to the models they actually ran, so the board can say
+# "split" AND what the split was. Guarded: the board must still render from
+# the CSVs alone if the harness modules ever fail to import.
+sys.path.insert(0, ROOT)
+sys.path.insert(0, BENCH)
+try:
+    import agent
+    import tools
+    from runner import CONFIGS
+except Exception:
+    agent = tools = None
+    CONFIGS = {}
+
+
+def config_desc(name):
+    """Human description of a bench config, e.g. which model orchestrates and
+    which writes code. Empty string for configs we can't resolve."""
+    cfg = CONFIGS.get(name)
+    if not cfg or agent is None:
+        return ""
+    orch = cfg.get("orchestrator") or agent.ORCHESTRATOR
+    if cfg.get("direct"):
+        return f"{orch} solo — no delegation, writes code itself"
+    coder = cfg.get("coder") or tools.CODER_MODEL
+    return f"{orch} orchestrates → {coder} writes code"
 
 
 # --- data ----------------------------------------------------------------------
@@ -77,6 +105,7 @@ def run_groups(rows):
         out.append({
             "date": max(r["timestamp"] for r in grp)[:10],
             "label": f"{config} · full suite ({len(grp)} tasks)",
+            "desc": config_desc(config),
             "commit": commit,
             "passed": sum(int(r["passed"]) for r in grp),
             "tasks": len(grp),
@@ -100,6 +129,7 @@ def first_expr_attempt():
                 return {
                     "date": r["timestamp"][:10],
                     "label": "expr_eval added · first attempt (solo)",
+                    "desc": "legacy split, pre phase 0 — no budgets, no hygiene",
                     "commit": r["commit"],
                     "passed": 0,
                     "tasks": 1,
@@ -185,6 +215,8 @@ def story_panel(story, curve):
     after_total = total_tokens(after)
     pct = round((before - after_total) / before * 100)
     width = after_total / before * 100
+    after_pill = ('<span class="pill pass">pass ✓</span>' if int(after["passed"])
+                  else '<span class="pill fail">fail ✗</span>')
     right = ""
     if curve:
         right = f'<div class="panel">{curve_svg(curve)}</div>'
@@ -207,7 +239,7 @@ def story_panel(story, curve):
           <div class="ba-track">
             <div class="ba-bar" style="width:{width:.2f}%;"></div>
             <div class="ba-val" style="left:calc({width:.2f}% + 8px);">{fmt(after_total)} tok ·
-              {after['steps']} steps · <span class="pill pass">pass ✓</span>
+              {after['steps']} steps · {after_pill}
               <span class="up-good">−{pct}%</span></div>
           </div>
         </div>
@@ -284,8 +316,9 @@ def history_section(runs):
         ok = g["passed"] == g["tasks"]
         pill = "pass" if ok else "fail"
         star = " *" if g["starred"] else ""
+        desc = (f"<span class='run-desc'>{esc(g['desc'])}</span>" if g.get("desc") else "")
         trs.append(
-            f"<tr><td class='mono'>{esc(g['date'])}</td><td>{esc(g['label'])}</td>"
+            f"<tr><td class='mono'>{esc(g['date'])}</td><td>{esc(g['label'])}{desc}</td>"
             f"<td class='mono'>{esc(g['commit'])}</td>"
             f"<td><span class='pill {pill}'>{g['passed']}/{g['tasks']}</span></td>"
             f"<td class='num'>{g['steps']}</td><td class='num'>{fmt(g['tokens'])}{star}</td></tr>")
@@ -385,6 +418,7 @@ CSS = """
   td.num,th.num { text-align:right; font-variant-numeric:tabular-nums;
     white-space:nowrap; }
   .note { font-size:12px; color:var(--muted); margin-top:10px; max-width:70ch; }
+  .run-desc { display:block; font-size:11.5px; color:var(--muted); }
   details { margin-top:12px; }
   summary { font-size:12.5px; color:var(--ink-2); cursor:pointer; }
   footer { color:var(--muted); font-size:12.5px; border-top:1px solid var(--grid);
@@ -456,8 +490,9 @@ def build():
     <span class="chip">commit {esc(newest['commit'])}</span>
     <span class="chip">config: {esc(newest['config'])}</span>
   </header>
-  <p class="sub">Eval progress for the Ollama harness. Orchestrator: gemma4:31b-cloud.
-  Coder: gpt-oss:20b, local. Regenerated after each bench run.</p>
+  <p class="sub">Eval progress for the Ollama harness. Latest config
+  <span class="mono">{esc(newest['config'])}</span>: {esc(config_desc(newest['config']) or 'see bench/runner.py CONFIGS')}.
+  Regenerated after each bench run.</p>
 
   <div class="tiles">
     <div class="tile">

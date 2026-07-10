@@ -85,6 +85,7 @@
   td.num,th.num { text-align:right; font-variant-numeric:tabular-nums;
     white-space:nowrap; }
   .note { font-size:12px; color:var(--muted); margin-top:10px; max-width:70ch; }
+  .run-desc { display:block; font-size:11.5px; color:var(--muted); }
   details { margin-top:12px; }
   summary { font-size:12.5px; color:var(--ink-2); cursor:pointer; }
   footer { color:var(--muted); font-size:12.5px; border-top:1px solid var(--grid);
@@ -104,8 +105,9 @@
     <span class="chip">commit 567b910</span>
     <span class="chip">config: split</span>
   </header>
-  <p class="sub">Eval progress for the Ollama harness. Orchestrator: gemma4:31b-cloud.
-  Coder: gpt-oss:20b, local. Regenerated after each bench run.</p>
+  <p class="sub">Eval progress for the Ollama harness. Latest config
+  <span class="mono">split</span>: gemma4:31b-cloud orchestrates → gpt-oss:20b writes code.
+  Regenerated after each bench run.</p>
 
   <div class="tiles">
     <div class="tile">
@@ -270,7 +272,7 @@
       <table>
         <thead><tr><th>date</th><th>run</th><th>commit</th><th>result</th>
         <th class="num">steps</th><th class="num">tokens</th></tr></thead>
-        <tbody><tr><td class='mono'>2026-07-10</td><td>split · full suite (8 tasks)</td><td class='mono'>567b910</td><td><span class='pill pass'>8/8</span></td><td class='num'>23</td><td class='num'>42,755</td></tr><tr><td class='mono'>2026-06-17</td><td>expr_eval added · first attempt (solo)</td><td class='mono'>8ecbdc2</td><td><span class='pill fail'>0/1</span></td><td class='num'>20</td><td class='num'>141,264 *</td></tr></tbody>
+        <tbody><tr><td class='mono'>2026-07-10</td><td>split · full suite (8 tasks)<span class='run-desc'>gemma4:31b-cloud orchestrates → gpt-oss:20b writes code</span></td><td class='mono'>567b910</td><td><span class='pill pass'>8/8</span></td><td class='num'>23</td><td class='num'>42,755</td></tr><tr><td class='mono'>2026-06-17</td><td>expr_eval added · first attempt (solo)<span class='run-desc'>legacy split, pre phase 0 — no budgets, no hygiene</span></td><td class='mono'>8ecbdc2</td><td><span class='pill fail'>0/1</span></td><td class='num'>20</td><td class='num'>141,264 *</td></tr></tbody>
       </table>
       <p class="note">* Ran before coder-token accounting landed, so the starred total
       undercounts its true cost.</p>
