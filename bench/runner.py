@@ -48,6 +48,12 @@ CONFIGS = {
     "split":         {"orchestrator": None,          "coder": None, "direct": False},
     "gemma-direct":  {"orchestrator": None,          "coder": None, "direct": True},
     "single-gptoss": {"orchestrator": "gpt-oss:20b", "coder": None, "direct": True},
+    # coder bake-off: same split, different local coder
+    "split-opus9b":  {"orchestrator": None,
+                      "coder": "aravhawk/qwen3.5-opus-4.6:9b", "direct": False},
+    "split-ds9b":    {"orchestrator": None,
+                      "coder": "pdurugyan/qwen3.5-9b-deepseek-v4-flash-Q4_K_M-v_2",
+                      "direct": False},
 }
 
 CSV_FIELDS = ["timestamp", "commit", "config", "task", "passed", "agent_status",

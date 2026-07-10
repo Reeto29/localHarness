@@ -116,15 +116,27 @@ alone — the coder swap to gpt-oss and the delegate verify loop landed since th
 so several variables moved. n=1 too. But the direction is unambiguous and now every
 future change can be measured properly.
 
+### 10. gpt-oss:20b solo, no orchestrator (second try)
+
+Same experiment that died at step 0 last time, rerun with phase 0+1 in place.
+
+**Takeaway:** 7/8 passed, ~216s wall, fully local. expr_eval passed solo (9 steps, 31.8k
+tokens, 67.5s — costlier in tokens than the split's 12.4k but faster in wall clock and
+zero cloud). The 500 parse errors still happen: fix_suite hit 3 in a row and the loop
+gave up, but the code already written passed the tests, so the run scored PASS with
+agent_status=llm_error. That's the phase 0 design paying off — recover, then grade
+whatever's left. Only multi_file failed. So the split still wins on my metrics (8/8,
+fewer tokens), but no-orchestrator went from catastrophically broken to one task short.
+The text-action protocol (phase 2) should close the tool-call gap.
+
 ---
 
 ## Things I keep thinking about
 
-- Does the split even earn its keep? Anthropic's guidance is to only add orchestration
-  complexity when it demonstrably beats the simple loop. mini-swe-agent gets 65%+ on
-  SWE-bench with one model, one bash tool, and no function calling at all. I haven't
-  actually proven the split beats a single model on my own bench. That experiment is
-  overdue.
+- Does the split even earn its keep? First real data point (method 10): split 8/8 at
+  42.8k tokens vs solo gpt-oss 7/8 at ~60k. Split wins today, but the solo run's losses
+  were tool-call formatting, not reasoning — the text-action protocol could flip this.
+  Needs 3 runs each before believing it either way.
 
 - JSON tool calling might be the wrong interface for local models entirely. The
   mini-swe-agent trick: don't pass tools at all. Model replies with one fenced bash block,
