@@ -278,6 +278,7 @@ def task_section(tasks):
 def history_section(runs):
     if not runs:
         return ""
+    runs = sorted(runs, key=lambda g: g["date"], reverse=True)  # newest first
     trs = []
     for g in runs:
         ok = g["passed"] == g["tasks"]
