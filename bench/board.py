@@ -49,8 +49,20 @@ def latest_run(rows):
     return newest, tasks
 
 
+def suite_size():
+    """How many tasks the bench currently has (so history can show full runs only)."""
+    tasks_dir = os.path.join(BENCH, "tasks")
+    try:
+        return sum(os.path.isdir(os.path.join(tasks_dir, d))
+                   for d in os.listdir(tasks_dir))
+    except OSError:
+        return 0
+
+
 def run_groups(rows):
-    """Summarize every (commit, config) group in the new-format CSV, oldest first."""
+    """Full-suite (commit, config) runs from the CSV, oldest first. Partial and
+    smoke runs (single tasks, aborted sweeps) are data, not history — skipped."""
+    n_suite = suite_size()
     groups = {}
     for r in rows:
         groups.setdefault((r["commit"], r["config"]), []).append(r)
@@ -60,9 +72,11 @@ def run_groups(rows):
         for r in sorted(grp, key=lambda r: r["timestamp"]):
             by_task[r["task"]] = r
         grp = list(by_task.values())
+        if n_suite and len(grp) < n_suite:
+            continue
         out.append({
             "date": max(r["timestamp"] for r in grp)[:10],
-            "label": f"{config} · {len(grp)} task{'s' if len(grp) != 1 else ''}",
+            "label": f"{config} · full suite ({len(grp)} tasks)",
             "commit": commit,
             "passed": sum(int(r["passed"]) for r in grp),
             "tasks": len(grp),
@@ -74,29 +88,32 @@ def run_groups(rows):
     return out
 
 
-def legacy_runs():
-    """Old aggregate-format rows (pre phase 0). Coder tokens were not counted."""
+def first_expr_attempt():
+    """The solo expr_eval failure from the legacy CSV — the 'before' of the
+    8-task era. (The older 7/7 rows predate expr_eval entirely and stay in
+    scores_v0.csv; they never ran the 8th task, so they aren't shown.)"""
     if not os.path.exists(SCORES_V0):
-        return []
+        return None
     with open(SCORES_V0) as f:
-        rows = list(csv.DictReader(f))
-    return [{
-        "date": r["timestamp"][:10],
-        "label": f"legacy · {r['tasks']} task{'s' if r['tasks'] != '1' else ''}",
-        "commit": r["commit"],
-        "passed": int(r["passed"]),
-        "tasks": int(r["tasks"]),
-        "steps": int(r["total_steps"]),
-        "tokens": int(r["total_tokens"]),
-        "starred": True,
-    } for r in rows]
+        for r in csv.DictReader(f):
+            if r["tasks"] == "1" and r["passed"] == "0":
+                return {
+                    "date": r["timestamp"][:10],
+                    "label": "expr_eval added · first attempt (solo)",
+                    "commit": r["commit"],
+                    "passed": 0,
+                    "tasks": 1,
+                    "steps": int(r["total_steps"]),
+                    "tokens": int(r["total_tokens"]),
+                    "starred": True,
+                }
+    return None
 
 
 def expr_eval_story(latest_tasks):
     """(before_tokens, after_row) for the turnaround panel, or None."""
     after = next((r for r in latest_tasks if r["task"] == "expr_eval"), None)
-    before = next((r for r in legacy_runs()
-                   if r["tasks"] == 1 and r["passed"] == 0), None)
+    before = first_expr_attempt()
     if not (after and before):
         return None
     return before["tokens"], after
@@ -280,8 +297,8 @@ def history_section(runs):
         <th class="num">steps</th><th class="num">tokens</th></tr></thead>
         <tbody>{''.join(trs)}</tbody>
       </table>
-      <p class="note">* Legacy runs (before phase 0) did not count coder tokens, so
-      starred totals undercount their true cost. Compare within eras, not across.</p>
+      <p class="note">* Ran before coder-token accounting landed, so the starred total
+      undercounts its true cost.</p>
     </div>
   </section>"""
 
@@ -460,7 +477,7 @@ def build():
   </div>
 {story_panel(story, curve)}
 {task_section(tasks)}
-{history_section(legacy_runs() + run_groups(rows))}
+{history_section(([first_expr_attempt()] if first_expr_attempt() else []) + run_groups(rows))}
   <footer>
     Data: bench/scores.csv. Generated {today} by bench/board.py.
     Refresh with <span class="mono">python3 bench/board.py</span> (runner.py does it automatically).
