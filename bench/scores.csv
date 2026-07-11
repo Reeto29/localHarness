@@ -18,3 +18,4 @@ timestamp,commit,config,task,passed,agent_status,steps,prompt_tokens,output_toke
 2026-07-10T16:50:25,39047c4,single-gptoss,merge_intervals,1,done,3,3818,1662,0,0,34.4,
 2026-07-10T16:50:51,39047c4,single-gptoss,multi_file,0,done,3,3185,1273,0,0,25.8,
 2026-07-10T16:51:07,39047c4,single-gptoss,palindrome,1,done,3,1668,322,0,0,16.5,
+2026-07-10T17:02:29,7390bed,split-opus9b,edit_dup,1,done,3,3400,228,116,178,10.6,

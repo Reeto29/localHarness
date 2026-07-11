@@ -285,15 +285,17 @@ TEMPLATE = r"""<!doctype html>
   .axis-track { position:relative; height:16px; font-size:10.5px; color:var(--muted); }
   .axis-track span { position:absolute; transform:translateX(-50%); }
   .axis-track .t0 { transform:none; }
-  /* compare: one thin bar per run inside each task group */
+  /* compare: one thin bar per run inside each task group. The value column is
+     reserved up front so a full-width bar can never push its label out of the box. */
   .cmp-group { display:grid; grid-template-columns:130px 1fr; gap:10px;
     padding:7px 4px; border-radius:6px; align-items:start; }
   .cmp-group:hover { background:var(--track); }
   .cmp-lines { display:flex; flex-direction:column; gap:3px; }
-  .cmp-line { display:flex; align-items:center; gap:8px; }
-  .cmp-bar { height:12px; border-radius:0 3px 3px 0; min-width:2px; flex:none; }
+  .cmp-line { display:grid; grid-template-columns:1fr 92px; gap:8px;
+    align-items:center; }
+  .cmp-bar { height:12px; border-radius:0 3px 3px 0; min-width:2px; }
   .cmp-val { font-size:11.5px; color:var(--ink-2); white-space:nowrap;
-    font-variant-numeric:tabular-nums; }
+    overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
   .ba-row { display:grid; grid-template-columns:110px 1fr; gap:10px;
     align-items:center; margin:10px 0; }
   .ba-head { font-size:13px; }
@@ -307,8 +309,10 @@ TEMPLATE = r"""<!doctype html>
     margin-left:6px; border:1px solid; }
   .pill.pass { color:var(--good-text); border-color:var(--good); }
   .pill.fail { color:var(--critical); border-color:var(--critical); }
-  .split2 { display:grid; grid-template-columns:1.7fr 1fr; gap:14px; }
+  .split2 { display:grid; grid-template-columns:1.7fr 1fr; gap:14px;
+    align-items:start; }  /* panels hug their content, no stretched empties */
   @media (max-width:720px) { .split2 { grid-template-columns:1fr; } }
+  .curve-panel { max-width:460px; }
   .curve-svg { width:100%; height:auto; display:block; }
   .curve-caption { font-size:12px; color:var(--muted); margin-top:6px; }
   table { border-collapse:collapse; width:100%; font-size:13.5px; }
@@ -454,7 +458,11 @@ function renderRun(run, isBest) {
   if (isBest && DATA.legacy && expr) {
     const before = DATA.legacy.tokens, after = expr.orch + expr.coder;
     const pct = Math.round((before - after) / before * 100);
-    const w = (after / before * 100).toFixed(2);
+    const w = Math.min(after / before * 100, 100);
+    // wide bar -> label sits inside it, right-aligned, so it can't overflow the box
+    const afterVal = w > 55
+      ? `<div class="ba-val" style="right:4px;color:#fff;">${fmt(after)} tok · ${expr.steps} steps ${pill(expr.passed)}</div>`
+      : `<div class="ba-val" style="left:calc(${w.toFixed(2)}% + 8px);">${fmt(after)} tok · ${expr.steps} steps · ${pill(expr.passed)} <span class="up-good">−${pct}%</span></div>`;
     turnaround = `<section><h2>The expr_eval turnaround</h2>
       <p class="h2-note">The hard task. The first attempt drowned in its own
       transcript; with budgets, error recovery, and context hygiene it passes.</p>
@@ -465,9 +473,8 @@ function renderRun(run, isBest) {
           <div class="ba-val" style="right:4px;color:#fff;">${fmt(before)} tok · fail</div>
         </div></div>
         <div class="ba-row"><div class="ba-head">this run<span class="date">${esc(run.config)}</span></div>
-        <div class="ba-track"><div class="ba-bar" style="width:${w}%;"></div>
-          <div class="ba-val" style="left:calc(${w}% + 8px);">${fmt(after)} tok ·
-          ${expr.steps} steps · ${pill(expr.passed)} <span class="up-good">−${pct}%</span></div>
+        <div class="ba-track"><div class="ba-bar" style="width:${w.toFixed(2)}%;"></div>
+          ${afterVal}
         </div></div>
         <div class="ba-row"><div class="ba-head"></div>
         <div class="ba-track" style="border-top:1px solid var(--baseline);height:14px;">
@@ -477,6 +484,14 @@ function renderRun(run, isBest) {
       </div>` +
       (expr.curve ? `<div class="panel">${curveSvg(expr.curve)}</div>` : "") +
       `</div></section>`;
+  }
+
+  // Every run tab gets the expr_eval growth curve when it exists; the best tab
+  // already shows it inside the turnaround panel.
+  let curveSection = "";
+  if (expr && expr.curve && !turnaround) {
+    curveSection = `<section><div class="panel curve-panel">` +
+                   `${curveSvg(expr.curve)}</div></section>`;
   }
 
   return `
@@ -490,7 +505,7 @@ function renderRun(run, isBest) {
       ${expr ? tile("expr_eval", fmt(expr.orch + expr.coder),
                     expr.passed ? "tokens · passed" : "tokens · failed") : ""}
     </div>
-    ${turnaround}
+    ${turnaround}${curveSection}
     <section><h2>Task by task</h2>
     <p class="h2-note">${esc(run.desc)}. Hover a row for detail.</p>
     <div class="panel">${legend}<div>${bars}</div>${axisTicks(maxTok)}
