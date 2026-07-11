@@ -54,6 +54,11 @@ CONFIGS = {
     "split-ds9b":    {"orchestrator": None,
                       "coder": "pdurugyan/qwen3.5-9b-deepseek-v4-flash-Q4_K_M-v_2",
                       "direct": False},
+    # Cohere's agentic-coding MoE (30B/3B active, 19GB) solo. Too big to
+    # co-reside with a coder on 24GB, so no split variant — swapping models
+    # per delegation would drown the wall-clock in load time.
+    "north-solo":    {"orchestrator": "north-mini-code-1.0", "coder": None,
+                      "direct": True},
 }
 
 CSV_FIELDS = ["timestamp", "commit", "config", "task", "passed", "agent_status",
