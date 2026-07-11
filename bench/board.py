@@ -48,9 +48,6 @@ BLURBS = {
                     "9B Opus-4.6 reasoning distill.",
     "split-ds9b": "Coder bake-off: the same split, with the coder swapped for a "
                   "9B DeepSeek-V4-Flash reasoning distill.",
-    "north-solo": "Cohere's North Mini Code (30B MoE, 3B active) running the whole "
-                  "loop alone — the first candidate actually trained for tool use "
-                  "inside agent harnesses. Too big to pair with a coder on 24GB.",
     "single-opus9b": "The Opus-4.6 9B distill running the whole loop alone. Tests "
                      "whether a slow thinker fares better without delegation "
                      "overhead — every step pays the reasoning tax in-transcript.",
