@@ -29,3 +29,5 @@ timestamp,commit,config,task,passed,agent_status,steps,prompt_tokens,output_toke
 2026-07-10T17:20:18,6433e57,split-ds9b,edit_dup,0,budget,3,3185,199,433,15294,429.8,
 2026-07-10T17:27:42,6433e57,split-ds9b,expr_eval,0,budget,2,2609,521,346,16038,444.1,
 2026-07-10T17:28:09,6433e57,split-ds9b,fix_bug,1,done,4,4538,315,162,781,26.8,
+2026-07-10T17:35:39,6433e57,split-ds9b,fix_suite,0,timeout,0,0,0,0,0,450.0,
+2026-07-10T17:36:08,6433e57,split-ds9b,fizzbuzz,1,done,2,2290,304,179,920,28.5,

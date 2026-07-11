@@ -129,6 +129,22 @@ whatever's left. Only multi_file failed. So the split still wins on my metrics (
 fewer tokens), but no-orchestrator went from catastrophically broken to one task short.
 The text-action protocol (phase 2) should close the tool-call gap.
 
+### 11. Coder bake-off: two 9B reasoning distills vs gpt-oss
+
+Swapped the coder seat in the split for aravhawk/qwen3.5-opus-4.6:9b, then
+pdurugyan/qwen3.5-9b-deepseek-v4-flash. Same harness, same limits, same orchestrator.
+
+**Takeaway:** both lose, and the CSV shows exactly why. Not context bloat — orchestrator
+tokens were identical to the champion run and coder prompts were tiny (433 tokens in).
+The distills just think too much. The opus distill is a situational overthinker: terse
+and correct on easy tasks (7/8, 53.9k tokens, but 625s wall), then 14.8k output tokens
+of chain-of-thought on expr_eval until the budget killed it. The DeepSeek distill is a
+pathological one: 15-16k output tokens on EVERYTHING, including a string replacement —
+it overran its own 8k context mid-monologue and forgot the start of its own reasoning.
+Killed the run at 5/8 tasks (2 passes). Lesson: "reasoning-distilled" means trained to
+always emit long CoT, which is the exact opposite of the coder seat's job description.
+gpt-oss:20b keeps the seat: MoE (3.6B active) makes it fast, and it just writes the code.
+
 ---
 
 ## Things I keep thinking about

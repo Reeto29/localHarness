@@ -59,6 +59,9 @@ CONFIGS = {
     # per delegation would drown the wall-clock in load time.
     "north-solo":    {"orchestrator": "north-mini-code-1.0", "coder": None,
                       "direct": True},
+    # The opus distill running everything itself, no orchestrator.
+    "single-opus9b": {"orchestrator": "aravhawk/qwen3.5-opus-4.6:9b",
+                      "coder": None, "direct": True},
 }
 
 CSV_FIELDS = ["timestamp", "commit", "config", "task", "passed", "agent_status",
