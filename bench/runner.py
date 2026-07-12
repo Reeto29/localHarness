@@ -57,6 +57,12 @@ CONFIGS = {
     # The opus distill running everything itself, no orchestrator.
     "single-opus9b": {"orchestrator": "aravhawk/qwen3.5-opus-4.6:9b",
                       "coder": None, "direct": True},
+    # Specialist coders vs the generalist champion. Both non-thinking:
+    # the dense code-gen classic, and the fast-MoE code model (2.4B active).
+    "split-qwen14b":    {"orchestrator": None, "coder": "qwen2.5-coder:14b",
+                         "direct": False},
+    "split-dscoder16b": {"orchestrator": None, "coder": "deepseek-coder-v2:16b",
+                         "direct": False},
 }
 
 CSV_FIELDS = ["timestamp", "commit", "config", "task", "passed", "agent_status",

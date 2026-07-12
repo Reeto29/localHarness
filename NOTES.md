@@ -145,6 +145,23 @@ Killed the run at 5/8 tasks (2 passes). Lesson: "reasoning-distilled" means trai
 always emit long CoT, which is the exact opposite of the coder seat's job description.
 gpt-oss:20b keeps the seat: MoE (3.6B active) makes it fast, and it just writes the code.
 
+### 12. Coder bake-off round 2: the non-thinking specialists
+
+qwen2.5-coder:14b (dense, the v0 coder's big brother) and deepseek-coder-v2:16b
+(MoE, 2.4B active — the champion's shape) in the coder seat.
+
+**Takeaway:** the champion survives everything. qwen14b went 8/8 — the only other
+config ever to sweep — and on the easy 7 it's as fast as gpt-oss or faster. But its
+expr_eval first drafts were weak, so the orchestrator ground through 8 steps of
+retry (22k orch tokens on one task), landing at 69.7k total vs the champ's 42.8k.
+dscoder16b showed a brand-new failure mode: high-velocity thrash. MoE speed plus
+weak drafts meant 18 steps on expr_eval in 238s, ~111k tokens on one task, first
+run ever killed by the token budget instead of the wall clock. Fast and wrong is
+just expensive, quickly. Full ladder after five coder-seat candidates: gpt-oss
+42.8k > qwen14b 69.7k (both 8/8) > everything else. The seat's job description,
+confirmed twice over: non-thinking, fast, and good enough on the first draft that
+the orchestrator doesn't have to loop.
+
 ---
 
 ## Things I keep thinking about

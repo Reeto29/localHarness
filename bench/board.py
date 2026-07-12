@@ -51,6 +51,11 @@ BLURBS = {
     "single-opus9b": "The Opus-4.6 9B distill running the whole loop alone. Tests "
                      "whether a slow thinker fares better without delegation "
                      "overhead — every step pays the reasoning tax in-transcript.",
+    "split-qwen14b": "The v0 coder's big brother: qwen2.5-coder 14B, dense, "
+                     "code-gen tuned, no thinking. The purest version of the "
+                     "original small-fast-worker thesis.",
+    "split-dscoder16b": "DeepSeek-Coder-V2 16B in the coder seat: MoE with 2.4B "
+                        "active — the champion's fast shape, but code-specific.",
 }
 
 
@@ -136,8 +141,9 @@ def build_runs():
         by_task = {}
         for r in sorted(grp, key=lambda r: r["timestamp"]):
             by_task[r["task"]] = r
-        if n_suite and len(by_task) < n_suite:
-            continue  # partial and smoke runs are data, not experiments
+        if len(by_task) < 2:
+            continue  # 1-task smoke runs are data, not experiments
+        partial = bool(n_suite) and len(by_task) < n_suite  # killed mid-run
         rows = []
         for r in by_task.values():
             orch = int(r["prompt_tokens"]) + int(r["output_tokens"])
@@ -151,6 +157,7 @@ def build_runs():
         rows.sort(key=lambda x: -(x["orch"] + x["coder"]))
         orch_label, coder_label = series_labels(config)
         runs.append({
+            "partial": partial,
             "id": f"{config}@{commit}",
             "config": config, "commit": commit,
             "date": max(r["timestamp"] for r in grp)[:10],
@@ -164,7 +171,8 @@ def build_runs():
             "rows": rows,
         })
     # Rank strongest first: pass rate, then fewer tokens (the efficiency metric).
-    runs.sort(key=lambda g: (-(g["passed"] / g["tasks"]), g["tokens"]))
+    # Partial (killed) runs can't be ranked fairly, so they always sort last.
+    runs.sort(key=lambda g: (g["partial"], -(g["passed"] / g["tasks"]), g["tokens"]))
     return runs
 
 
@@ -178,12 +186,15 @@ FAIL_REASONS = {
 }
 
 
-def verdict(run, best):
+def verdict(run, best, n_suite):
     """One-line, data-driven 'what went wrong' relative to the strongest run."""
     if run is best:
         return ("The bar to beat: highest pass rate at the lowest token bill "
                 "of any experiment so far.")
     parts = []
+    if run["partial"]:
+        parts.append(f"run killed after {run['tasks']} of {n_suite} tasks "
+                     "(unranked)")
     for f in (r for r in run["rows"] if not r["passed"]):
         reason = FAIL_REASONS.get(f["status"], f["status"])
         parts.append(f"{f['task']} failed — {reason}")
@@ -192,7 +203,7 @@ def verdict(run, best):
     if flaky:
         parts.append(f"{', '.join(flaky)} passed only because partial work "
                      "survived repeated tool-call 500s")
-    if best and run["tokens"] > best["tokens"] * 1.15:
+    if best and not run["partial"] and run["tokens"] > best["tokens"] * 1.15:
         parts.append(f"{run['tokens'] / best['tokens']:.1f}× the tokens of "
                      "the strongest run")
     return "; ".join(parts) + "." if parts else \
@@ -201,11 +212,13 @@ def verdict(run, best):
 
 def build_data():
     runs = build_runs()
-    best = runs[0] if runs else None
+    n_suite = suite_size()
+    best = next((r for r in runs if not r["partial"]), None)
     for run in runs:
-        run["verdict"] = verdict(run, best)
+        run["verdict"] = verdict(run, best, n_suite)
     return {
         "generated": datetime.date.today().isoformat(),
+        "suite": n_suite,
         "bestId": best["id"] if best else None,
         "legacy": first_expr_attempt(),
         "runs": runs,
@@ -246,6 +259,10 @@ TEMPLATE = r"""<!doctype html>
   .tab[aria-selected="true"] { background:var(--ink); color:var(--page);
     border-color:var(--ink); }
   .tab:focus-visible { outline:2px solid var(--s1); outline-offset:2px; }
+  .tab.partial { opacity:0.55; border-style:dashed; }
+  .tab.partial[aria-selected="true"] { opacity:0.85; }
+  tr.partial-row { opacity:0.55; }
+  .chip.warn { color:var(--critical); border-color:var(--critical); }
   .chip { font-size:12px; padding:3px 10px; border-radius:999px;
     border:1px solid var(--ring); color:var(--ink-2); background:var(--surface); }
   .chip.pass { color:var(--good-text); border-color:var(--good); }
@@ -429,6 +446,8 @@ function renderRun(run, isBest) {
 
   let banner = "";
   if (isBest) banner = `<span class="chip best">★ strongest to date</span> `;
+  if (run.partial) banner = `<span class="chip warn">✂ killed at ` +
+    `${run.tasks}/${DATA.suite} tasks — unranked</span> `;
 
   let legend = `<div class="legend"><span><span class="swatch"` +
     ` style="background:var(--s1);"></span>${esc(run.orchLabel)}</span>`;
@@ -524,8 +543,10 @@ function renderCompare() {
   if (!runs.length) return "<p>No full-suite runs yet.</p>";
 
   let legend = `<div class="legend">` + runs.map(r =>
-    `<span><span class="swatch" style="background:${runColor[r.id]};"></span>` +
-    `${esc(r.config)} · ${esc(r.date)}</span>`).join("") + `</div>`;
+    `<span${r.partial ? ' style="opacity:0.55"' : ""}><span class="swatch"` +
+    ` style="background:${runColor[r.id]};"></span>` +
+    `${esc(r.config)} · ${esc(r.date)}${r.partial ? " (killed)" : ""}</span>`)
+    .join("") + `</div>`;
 
   // union of tasks, ordered by the max total across runs
   const taskMax = {};
@@ -542,7 +563,7 @@ function renderCompare() {
       const r = run.rows.find(x => x.task === task);
       if (!r) continue;
       const tot = r.orch + r.coder;
-      lines += `<div class="cmp-line">` +
+      lines += `<div class="cmp-line"${run.partial ? ' style="opacity:0.55"' : ""}>` +
         `<div class="cmp-bar" style="background:${runColor[run.id]};` +
         `width:${(tot / maxTok * 100).toFixed(2)}%"></div>` +
         `<span class="cmp-val">${fmt(tot)}${r.passed ? "" : ' <span class="fx" style="color:var(--critical)">✗</span>'}</span></div>`;
@@ -552,7 +573,8 @@ function renderCompare() {
   }
 
   let trs = runs.map((r, i) =>
-    `<tr><td class="mono">#${i + 1}</td>` +
+    `<tr${r.partial ? ' class="partial-row"' : ""}>` +
+    `<td class="mono">${r.partial ? "—" : "#" + (i + 1)}</td>` +
     `<td>${esc(r.config)} <span class="mono" style="font-size:11px;color:var(--muted)">${esc(r.date)}</span>` +
     `<span class="run-desc">${esc(r.desc)}</span>` +
     `<span class="run-desc">${esc(r.verdict)}</span></td>` +
@@ -584,8 +606,10 @@ const tabsEl = document.getElementById("tabs");
 const panelEl = document.getElementById("panel");
 // run tabs come pre-ranked strongest -> weakest from the generator
 const tabs = [{ id: "best", label: "★ Best" }, { id: "compare", label: "Compare" }]
-  .concat(DATA.runs.map(r =>
-    ({ id: r.id, label: `${r.config} · ${r.passed}/${r.tasks}` })));
+  .concat(DATA.runs.map(r => ({
+    id: r.id, partial: r.partial,
+    label: `${r.config} · ${r.partial ? "killed" : r.passed + "/" + r.tasks}`,
+  })));
 
 function select(id) {
   for (const b of tabsEl.children)
@@ -601,7 +625,8 @@ function select(id) {
 
 for (const t of tabs) {
   const b = document.createElement("button");
-  b.className = "tab"; b.role = "tab"; b.dataset.id = t.id; b.textContent = t.label;
+  b.className = "tab" + (t.partial ? " partial" : "");
+  b.role = "tab"; b.dataset.id = t.id; b.textContent = t.label;
   b.addEventListener("click", () => select(t.id));
   tabsEl.appendChild(b);
 }
