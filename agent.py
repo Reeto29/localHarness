@@ -5,10 +5,11 @@ Same dance as the M1 hand-test, but automated:
   -> stop when it replies with no tool calls.
 """
 
+import re
 import time
 
 from llm import chat, OllamaUnreachable
-from tools import TOOL_SCHEMAS, TOOL_FUNCS, CODER_TOKENS, clip
+from tools import TOOL_SCHEMAS, TOOL_FUNCS, CODER_TOKENS, clip, run_bash
 
 ORCHESTRATOR = "gemma4:31b-cloud"  # glm-5.2:cloud needs a paid Ollama subscription
 
@@ -31,6 +32,36 @@ SYSTEM_PROMPT = (
 
 # A safety cap so a confused model can't loop forever.
 MAX_STEPS = 20
+
+# --- text-action mode ----------------------------------------------------------
+# For local models that fumble tool-call JSON (Ollama 500s on malformed calls):
+# no tools are sent at all. The model replies with ONE fenced lh_bash block, we
+# regex it out and run it. No JSON to malform, so that failure class is gone.
+# The unique fence tag keeps prose code blocks from false-matching.
+
+FENCE_RE = re.compile(r"```lh_bash\s*\n(.*?)```", re.DOTALL)
+
+# Sentinel command that means "I'm finished" (checked before execution).
+TASK_COMPLETE = "task_complete"
+
+# Prefix marking a command result in history, so stubbing can elide stale ones.
+OBS_PREFIX = "[command output]\n"
+
+# gpt-oss quirk: with a LONG system prompt and no tools it stalls in its
+# thinking channel and returns empty content. So the system prompt stays
+# tiny and the protocol rules ride in the first user message instead
+# (mini-swe-agent uses the same layout).
+TEXT_SYSTEM_PROMPT = (
+    "Reply with one shell command in a ```lh_bash fenced block. Nothing else "
+    f"runs. When finished, send {TASK_COMPLETE} in the block."
+)
+
+TEXT_TASK_RULES = (
+    "Rules: each command runs in a FRESH shell in the working directory (cd and "
+    "variables do not persist). Create or overwrite files with a heredoc "
+    "(cat > f.py <<'EOF' ... EOF). Verify your work by running it before sending "
+    f"{TASK_COMPLETE}. Exactly one lh_bash block per reply."
+)
 
 # Give up after this many failed chat() calls in a row (e.g. the model keeps
 # emitting tool-call JSON that Ollama's parser rejects with an HTTP 500).
@@ -63,10 +94,12 @@ def _stub_stale_tool_results(messages):
     out = []
     for i, m in enumerate(messages):
         content = m.get("content") or ""
-        if (i < cutoff and m.get("role") == "tool"
-                and len(content) > STUB_THRESHOLD_CHARS):
-            m = dict(m, content=(f"[{m.get('tool_name', 'tool')} result elided "
-                                 f"({len(content)} chars); re-run the tool if needed]"))
+        is_tool = m.get("role") == "tool"
+        is_obs = m.get("role") == "user" and content.startswith(OBS_PREFIX)
+        if i < cutoff and (is_tool or is_obs) and len(content) > STUB_THRESHOLD_CHARS:
+            label = m.get("tool_name", "tool") if is_tool else "command output"
+            m = dict(m, content=(f"[{label} elided ({len(content)} chars); "
+                                 "re-run if needed]"))
         out.append(m)
     return out
 
@@ -82,7 +115,7 @@ def needs_confirm(name, args):
 
 def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
         wall_budget_secs=None, token_budget=None,
-        system_prompt=None, tool_schemas=None):
+        system_prompt=None, tool_schemas=None, text_actions=False):
     """Run one task to completion. Returns (final_text_answer, metrics).
 
     confirm: optional callable(name, args) -> bool. Called before running a
@@ -93,16 +126,19 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
              grinding on until MAX_STEPS.
     system_prompt, tool_schemas: override the defaults (used by bench configs,
              e.g. a no-delegation setup where the model writes code itself).
+    text_actions: use the fenced-block protocol instead of tool calls — no
+             tools are sent, so malformed-JSON 500s are structurally impossible.
     """
     if system_prompt is None:
-        system_prompt = SYSTEM_PROMPT
+        system_prompt = TEXT_SYSTEM_PROMPT if text_actions else SYSTEM_PROMPT
     if tool_schemas is None:
-        tool_schemas = TOOL_SCHEMAS
+        tool_schemas = None if text_actions else TOOL_SCHEMAS
 
     start = time.monotonic()
+    first_user = f"Task: {task}\n\n{TEXT_TASK_RULES}" if text_actions else task
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": task},
+        {"role": "user", "content": first_user},
     ]
 
     # Metrics for the eval harness (and curiosity).
@@ -112,6 +148,7 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
         "prompt_per_step": [],  # growth curve; flat while history grows = truncation
         "tools": {},          # name -> {"ok": n, "err": n}
         "llm_errors": 0,
+        "format_errors": 0,   # text mode: replies without exactly one action block
         "stopped_reason": None,
     }
     coder_start = dict(CODER_TOKENS)  # snapshot; we report this run's delta
@@ -127,6 +164,7 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
         t["ok" if ok else "err"] += 1
 
     errors_in_a_row = 0
+    format_errors_in_a_row = 0
     for step in range(MAX_STEPS):
         # Soft budgets: a clean stop with metrics beats a 15-minute grind.
         if wall_budget_secs and time.monotonic() - start > wall_budget_secs:
@@ -154,12 +192,17 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
             if errors_in_a_row >= MAX_LLM_ERRORS:
                 return finish("llm_error", "[stopped: "
                               f"{MAX_LLM_ERRORS} model errors in a row. Last: {str(e)[:300]}]")
-            messages.append({"role": "user", "content": (
-                f"Your last reply caused a server error: {str(e)[:200]}. "
-                "This usually means a malformed tool call. Re-issue it as valid JSON. "
-                "Never put heredocs or multi-line scripts inside a run_bash command; "
-                "use write_file to create the file, then run it."
-            )})
+            if text_actions:
+                hint = ("Your last reply caused a server error: "
+                        f"{str(e)[:200]}. Re-send your action as one "
+                        "```lh_bash fenced block.")
+            else:
+                hint = (f"Your last reply caused a server error: {str(e)[:200]}. "
+                        "This usually means a malformed tool call. Re-issue it as "
+                        "valid JSON. Never put heredocs or multi-line scripts inside "
+                        "a run_bash command; use write_file to create the file, "
+                        "then run it.")
+            messages.append({"role": "user", "content": hint})
             continue
         errors_in_a_row = 0
 
@@ -169,6 +212,41 @@ def run(task, model=ORCHESTRATOR, verbose=True, confirm=None,
 
         reply = body["message"]
         messages.append(reply)  # record what the model said (text or tool calls)
+
+        if text_actions:
+            content = reply.get("content") or ""
+            actions = [a.strip() for a in FENCE_RE.findall(content)]
+            if len(actions) != 1:
+                # Format slip — reflect it back and let the model retry.
+                metrics["format_errors"] += 1
+                format_errors_in_a_row += 1
+                if verbose:
+                    print(f"  [format error {format_errors_in_a_row}/{MAX_LLM_ERRORS}]")
+                if format_errors_in_a_row >= MAX_LLM_ERRORS:
+                    return finish("format_error",
+                                  "[stopped: no valid action block after "
+                                  f"{MAX_LLM_ERRORS} tries]")
+                messages.append({"role": "user", "content": (
+                    "Your reply must contain EXACTLY ONE ```lh_bash code block "
+                    f"(found {len(actions)}). Re-send just the action."
+                )})
+                continue
+            format_errors_in_a_row = 0
+
+            command = actions[0]
+            if command == TASK_COMPLETE:
+                # The model's prose around the sentinel is its final answer.
+                return finish("done", FENCE_RE.sub("", content).strip())
+            if verbose:
+                print(f"  [cmd] {command}")
+            if confirm is not None and not confirm("run_bash", {"command": command}):
+                result = "DENIED: the user declined to run this command."
+            else:
+                result = run_bash(command)
+            record_tool("run_bash", not str(result).startswith(("ERROR", "DENIED")))
+            messages.append({"role": "user",
+                             "content": OBS_PREFIX + clip(str(result))})
+            continue
 
         tool_calls = reply.get("tool_calls") or []
         if not tool_calls:

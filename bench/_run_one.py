@@ -35,7 +35,10 @@ def config_kwargs(cfg):
     kw = {"model": cfg.get("orchestrator") or agent.ORCHESTRATOR}
     if cfg.get("coder"):
         tools.CODER_MODEL = cfg["coder"]  # the one global knob left
-    if cfg.get("direct"):
+    if cfg.get("text"):
+        # Fenced-block protocol: no tools at all, agent.run supplies its own prompt.
+        kw["text_actions"] = True
+    elif cfg.get("direct"):
         # No delegation: drop the coder tool, tell the model to write code itself.
         kw["system_prompt"] = DIRECT_PROMPT
         kw["tool_schemas"] = [s for s in agent.TOOL_SCHEMAS

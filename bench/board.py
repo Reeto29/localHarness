@@ -56,6 +56,10 @@ BLURBS = {
                      "original small-fast-worker thesis.",
     "split-dscoder16b": "DeepSeek-Coder-V2 16B in the coder seat: MoE with 2.4B "
                         "active — the champion's fast shape, but code-specific.",
+    "single-gptoss-text": "Phase 2: gpt-oss:20b solo on the fenced-block protocol. "
+                          "No tool-call JSON exists to malform, so the 500 crash "
+                          "class is structurally gone. Fully local — if this "
+                          "matches the split, the cloud model is optional.",
 }
 
 

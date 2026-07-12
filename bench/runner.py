@@ -63,6 +63,10 @@ CONFIGS = {
                          "direct": False},
     "split-dscoder16b": {"orchestrator": None, "coder": "deepseek-coder-v2:16b",
                          "direct": False},
+    # Phase 2: gpt-oss solo on the fenced-block protocol — no tool-call JSON,
+    # so the 500 failure class that cost single-gptoss its run can't happen.
+    "single-gptoss-text": {"orchestrator": "gpt-oss:20b", "coder": None,
+                           "direct": True, "text": True},
 }
 
 CSV_FIELDS = ["timestamp", "commit", "config", "task", "passed", "agent_status",

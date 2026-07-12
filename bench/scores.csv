@@ -47,3 +47,6 @@ timestamp,commit,config,task,passed,agent_status,steps,prompt_tokens,output_toke
 2026-07-12T15:20:07,f7ab076,split-dscoder16b,merge_intervals,1,done,2,2388,362,181,179,8.9,
 2026-07-12T15:20:17,f7ab076,split-dscoder16b,multi_file,1,done,3,3771,453,301,265,10.1,
 2026-07-12T15:20:21,f7ab076,split-dscoder16b,palindrome,1,done,2,2268,271,199,81,3.8,
+2026-07-12T15:39:00,8bb8ba9,single-gptoss-text,fizzbuzz,0,format_error,3,2471,1602,0,0,41.2,
+2026-07-12T15:42:39,8bb8ba9,single-gptoss-text,fizzbuzz,1,done,3,1238,1303,0,0,26.6,
+2026-07-12T15:47:43,8bb8ba9,single-gptoss-text,expr_eval,1,budget,13,64434,14058,0,0,303.6,
