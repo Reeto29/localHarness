@@ -162,6 +162,38 @@ just expensive, quickly. Full ladder after five coder-seat candidates: gpt-oss
 confirmed twice over: non-thinking, fast, and good enough on the first draft that
 the orchestrator doesn't have to loop.
 
+### 13. Phase 2: text-action mode, and the first statistically honest verdict
+
+Built the mini-swe-agent protocol: no tools sent, model replies with one fenced lh_bash
+block, harness regexes it out and runs it. The JSON-500 crash class is structurally
+impossible now. gpt-oss quirk found along the way: a long system prompt with no tools
+stalls it in the thinking channel with empty content, so the prompt stays tiny and the
+rules ride in the task message.
+
+Then the decisive experiment, done right for once: 3 runs each of single-gptoss-text vs
+split, scored by paired per-task flips (my own rule: believe nothing under 2 net flips).
+
+**Takeaway:** the split wins, net +2 task-flips, and I believe it now. Both configs were
+eerily stable across 3 runs (text-solo 5/8 three times; split 7/8 twice). Per-task:
+
+  text-solo   split
+  edit_dup    0/3    3/3   split
+  fix_bug     0/3    3/3   split
+  fix_suite   0/3    2/3   split
+  expr_eval   3/3    1/3   TEXT  <- the surprise
+  (fizzbuzz, merge_intervals, multi_file, palindrome: 3/3 both)
+
+The shock: text-solo NAILS the hard task 3/3 while the split only gets it 1/3 — running
+its own commands with heredocs, no delegation lossiness, it just builds the two-file
+evaluator directly. But it face-plants on three EASY tasks, all format errors: it stops
+emitting the lh_bash fence and burns its 3 retries. So the crash class didn't vanish, it
+mutated — JSON-500 became format-error. Cost is worse too: text-solo median 129k tokens
+(expr_eval grinds 13+ steps) vs split's 67k.
+
+Verdict: the split earns its keep, confirmed. But text mode found a real edge on hard
+multi-file work, and its losses are a fixable formatting problem, not a reasoning one.
+The prize (fully local, no cloud) is still live if the format fragility can be nailed.
+
 ---
 
 ## Things I keep thinking about
