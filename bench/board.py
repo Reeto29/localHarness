@@ -13,6 +13,7 @@ import datetime
 import glob
 import json
 import os
+import statistics
 import sys
 
 BENCH = os.path.dirname(os.path.abspath(__file__))
@@ -132,52 +133,116 @@ def first_expr_attempt():
     return None
 
 
+def _tok(r):
+    return (int(r["prompt_tokens"]) + int(r["output_tokens"])
+            + int(r["coder_prompt_tokens"]) + int(r["coder_output_tokens"]))
+
+
+def _individual_runs(grp, n_suite):
+    """Split a (config, commit) group into individual full-suite runs.
+
+    Runs execute all tasks in order then the next run starts, so chunking the
+    timestamp-sorted rows into blocks of n_suite recovers each run. A short
+    trailing block is a partial (killed) run. This is what fixes the old
+    'blend 3 runs into one Frankenstein tab' bug.
+    """
+    grp = sorted(grp, key=lambda r: r["timestamp"])
+    size = n_suite or len(grp)
+    out = []
+    for i in range(0, len(grp), size):
+        chunk = grp[i:i + size]
+        tasks = {r["task"]: r for r in chunk}  # de-dupe within a run, just in case
+        if len(tasks) < 2:
+            continue  # 1-task smoke run, not an experiment
+        out.append({
+            "date": max(r["timestamp"] for r in chunk),
+            "partial": bool(n_suite) and len(tasks) < n_suite,
+            "rows": tasks,  # task -> csv row
+        })
+    return out
+
+
+def _median_int(xs):
+    return int(round(statistics.median(xs))) if xs else 0
+
+
+def _aggregate(config, commit, runs, curves):
+    """Fold N runs of one config@commit into a single experiment entry: each
+    task shows k/n runs passed, and tokens/steps/wall are medians across runs."""
+    n = len(runs)
+    tasks = sorted({t for run in runs for t in run["rows"]},
+                   key=lambda t: -_median_int(
+                       [_tok(run["rows"][t]) for run in runs if t in run["rows"]]))
+    curve_map = curves.get((config, commit), {})
+    rows = []
+    for t in tasks:
+        cells = [run["rows"][t] for run in runs if t in run["rows"]]
+        pass_k = sum(int(c["passed"]) for c in cells)
+        orch = _median_int([int(c["prompt_tokens"]) + int(c["output_tokens"]) for c in cells])
+        coder = _median_int([int(c["coder_prompt_tokens"]) + int(c["coder_output_tokens"]) for c in cells])
+        statuses = [c["agent_status"] for c in cells]
+        rows.append({
+            "task": t, "passK": pass_k, "passN": len(cells),
+            "passed": pass_k == len(cells),   # green only if it passed every run
+            "orch": orch, "coder": coder,
+            "steps": _median_int([int(c["steps"]) for c in cells]),
+            "wall": _median_int([float(c["wall_secs"]) for c in cells]),
+            "status": statistics.mode(statuses) if statuses else None,
+            "curve": curve_map.get(t),
+        })
+    totals = [sum(int(c["passed"]) for c in run["rows"].values()) for run in runs]
+    orch_label, coder_label = series_labels(config)
+    return {
+        "partial": runs[0]["partial"],
+        "id": f"{config}@{commit}",
+        "config": config, "commit": commit,
+        "date": max(run["date"] for run in runs)[:10],
+        "desc": config_desc(config),
+        "blurb": BLURBS.get(config, config_desc(config)),
+        "orchLabel": orch_label, "coderLabel": coder_label,
+        "nRuns": n, "passMin": min(totals), "passMax": max(totals),
+        "passed": _median_int(totals),          # headline = median, not luckiest
+        "tasks": len(rows),
+        "steps": _median_int([sum(int(c["steps"]) for c in run["rows"].values()) for run in runs]),
+        "tokens": _median_int([sum(_tok(c) for c in run["rows"].values()) for run in runs]),
+        "wall": _median_int([sum(float(c["wall_secs"]) for c in run["rows"].values()) for run in runs]),
+        "rows": rows,
+    }
+
+
 def build_runs():
-    """One entry per full-suite (commit, config) run, newest first."""
+    """One entry per config, aggregating its runs AT ITS LATEST COMMIT (never
+    mixing across code changes). Median pass rate, not the luckiest single run.
+    Older-commit runs of the same config are left to history."""
     n_suite = suite_size()
     curves = load_curves()
     groups = {}
     for r in load_rows():
-        groups.setdefault((r["commit"], r["config"]), []).append(r)
+        groups.setdefault((r["config"], r["commit"]), []).append(r)
 
-    runs = []
-    for (commit, config), grp in groups.items():
-        by_task = {}
-        for r in sorted(grp, key=lambda r: r["timestamp"]):
-            by_task[r["task"]] = r
-        if len(by_task) < 2:
-            continue  # 1-task smoke runs are data, not experiments
-        partial = bool(n_suite) and len(by_task) < n_suite  # killed mid-run
-        rows = []
-        for r in by_task.values():
-            orch = int(r["prompt_tokens"]) + int(r["output_tokens"])
-            coder = int(r["coder_prompt_tokens"]) + int(r["coder_output_tokens"])
-            rows.append({
-                "task": r["task"], "passed": int(r["passed"]),
-                "status": r["agent_status"], "orch": orch, "coder": coder,
-                "steps": int(r["steps"]), "wall": float(r["wall_secs"]),
-                "curve": curves.get((config, commit), {}).get(r["task"]),
-            })
-        rows.sort(key=lambda x: -(x["orch"] + x["coder"]))
-        orch_label, coder_label = series_labels(config)
-        runs.append({
-            "partial": partial,
-            "id": f"{config}@{commit}",
-            "config": config, "commit": commit,
-            "date": max(r["timestamp"] for r in grp)[:10],
-            "desc": config_desc(config),
-            "blurb": BLURBS.get(config, config_desc(config)),
-            "orchLabel": orch_label, "coderLabel": coder_label,
-            "passed": sum(r["passed"] for r in rows), "tasks": len(rows),
-            "steps": sum(r["steps"] for r in rows),
-            "tokens": sum(r["orch"] + r["coder"] for r in rows),
-            "wall": round(sum(r["wall"] for r in rows)),
-            "rows": rows,
-        })
-    # Rank strongest first: pass rate, then fewer tokens (the efficiency metric).
-    # Partial (killed) runs can't be ranked fairly, so they always sort last.
-    runs.sort(key=lambda g: (g["partial"], -(g["passed"] / g["tasks"]), g["tokens"]))
-    return runs
+    # config -> list of (commit, [runs])
+    by_config = {}
+    for (config, commit), grp in groups.items():
+        runs = _individual_runs(grp, n_suite)
+        if runs:
+            by_config.setdefault(config, []).append((commit, runs))
+
+    experiments = []
+    for config, cc in by_config.items():
+        # Prefer the latest commit that has at least one FULL run; fall back to
+        # latest partial (a config that was only ever killed, e.g. split-ds9b).
+        full = [(commit, [r for r in runs if not r["partial"]]) for commit, runs in cc]
+        full = [(c, rs) for c, rs in full if rs]
+        if full:
+            commit, runs = max(full, key=lambda x: max(r["date"] for r in x[1]))
+        else:
+            commit, allruns = max(cc, key=lambda x: max(r["date"] for r in x[1]))
+            runs = [max(allruns, key=lambda r: r["date"])]
+        experiments.append(_aggregate(config, commit, runs, curves))
+
+    # Rank strongest first: median pass rate, then fewer tokens. Partials last.
+    experiments.sort(key=lambda g: (g["partial"], -(g["passed"] / g["tasks"]), g["tokens"]))
+    return experiments
 
 
 FAIL_REASONS = {
@@ -190,39 +255,57 @@ FAIL_REASONS = {
 }
 
 
+def _runs_note(run):
+    """'median of 3 runs (7-8)' or 'single run (unconfirmed)'."""
+    if run["nRuns"] == 1:
+        return "single run — unconfirmed"
+    rng = (f"{run['passMin']}-{run['passMax']}" if run["passMin"] != run["passMax"]
+           else "stable")
+    return f"median of {run['nRuns']} runs ({rng}/{run['tasks']})"
+
+
 def verdict(run, best, n_suite):
     """One-line, data-driven 'what went wrong' relative to the strongest run."""
     if run is best:
-        return ("The bar to beat: highest pass rate at the lowest token bill "
-                "of any experiment so far.")
+        return (f"The bar to beat: best median pass rate at the lowest token bill "
+                f"({_runs_note(run)}).")
     parts = []
     if run["partial"]:
         parts.append(f"run killed after {run['tasks']} of {n_suite} tasks "
                      "(unranked)")
     for f in (r for r in run["rows"] if not r["passed"]):
         reason = FAIL_REASONS.get(f["status"], f["status"])
-        parts.append(f"{f['task']} failed — {reason}")
-    flaky = [r["task"] for r in run["rows"]
-             if r["passed"] and r["status"] == "llm_error"]
-    if flaky:
-        parts.append(f"{', '.join(flaky)} passed only because partial work "
-                     "survived repeated tool-call 500s")
+        howoften = ("" if f["passN"] == 1 or f["passK"] == 0
+                    else f" ({f['passN'] - f['passK']} of {f['passN']} runs)")
+        parts.append(f"{f['task']} fails{howoften} — {reason}")
+    if best and not run["partial"] and run["passed"] > best["passed"]:
+        parts.insert(0, f"scored {run['passed']}/{run['tasks']} but on ONE "
+                     f"unconfirmed run — needs {CONFIRM_RUNS}+ to earn the crown")
     if best and not run["partial"] and run["tokens"] > best["tokens"] * 1.15:
-        parts.append(f"{run['tokens'] / best['tokens']:.1f}× the tokens of "
-                     "the strongest run")
-    return "; ".join(parts) + "." if parts else \
-        "Matched the strongest run on pass rate, just costlier."
+        parts.append(f"{run['tokens'] / best['tokens']:.1f}× the tokens of the best")
+    tail = "; ".join(parts) + "." if parts else \
+        "Matched the best on pass rate, just costlier."
+    return tail + f" [{_runs_note(run)}]"
+
+
+CONFIRM_RUNS = 2  # a config must repeat this many runs to be crownable
 
 
 def build_data():
     runs = build_runs()
     n_suite = suite_size()
-    best = next((r for r in runs if not r["partial"]), None)
+    # The crown requires CONFIRMATION: a single lucky run can't be champion,
+    # however high it scored. Unconfirmed runs still appear and rank by score,
+    # just flagged and never starred. (This is the whole point of the rebuild.)
+    best = next((r for r in runs
+                 if not r["partial"] and r["nRuns"] >= CONFIRM_RUNS), None)
     for run in runs:
         run["verdict"] = verdict(run, best, n_suite)
+        run["confirmed"] = (not run["partial"]) and run["nRuns"] >= CONFIRM_RUNS
     return {
         "generated": datetime.date.today().isoformat(),
         "suite": n_suite,
+        "confirmRuns": CONFIRM_RUNS,
         "bestId": best["id"] if best else None,
         "legacy": first_expr_attempt(),
         "runs": runs,
@@ -305,6 +388,7 @@ TEMPLATE = r"""<!doctype html>
   .seg + .seg { margin-left:2px; }
   .val { font-size:12.5px; color:var(--ink-2); font-variant-numeric:tabular-nums; }
   .val .fx { color:var(--critical); }
+  .val .kn { color:var(--muted); font-size:11px; }
   .axis { display:grid; grid-template-columns:130px 1fr 84px; gap:10px; margin-top:6px; }
   .axis-track { position:relative; height:16px; font-size:10.5px; color:var(--muted); }
   .axis-track span { position:absolute; transform:translateX(-50%); }
@@ -367,8 +451,10 @@ TEMPLATE = r"""<!doctype html>
     <h1>localHarness · bench board</h1>
     <span class="chip" id="hdr-chip"></span>
   </header>
-  <p class="sub">Every experiment this harness has run, one tab each. Opens on the
-  strongest result to date; Compare lines them up task by task.</p>
+  <p class="sub">One tab per config, each aggregating its runs at its latest commit
+  (median pass rate, never the luckiest single run). The ★ crown needs confirmation
+  — 2+ runs — so a lucky one-off can rank high but can't be champion. Opens on the
+  strongest <em>confirmed</em> result.</p>
   <nav class="tabs" id="tabs" role="tablist"></nav>
   <main id="panel"></main>
   <footer>
@@ -399,6 +485,15 @@ function tile(label, value, note, cls) {
 function pill(ok) {
   return ok ? '<span class="pill pass">pass ✓</span>'
             : '<span class="pill fail">fail ✗</span>';
+}
+
+// pass-rate tile subtitle: run count + range, or an unconfirmed flag for n=1
+function medianNote2(run) {
+  if (run.nRuns === 1) return `single run · unconfirmed · ${run.commit}`;
+  const rng = run.passMin === run.passMax
+    ? `stable at ${run.passMin}/${run.tasks}`
+    : `range ${run.passMin}-${run.passMax}/${run.tasks}`;
+  return `median of ${run.nRuns} runs · ${rng}`;
 }
 
 function curveSvg(vals) {
@@ -449,9 +544,11 @@ function renderRun(run, isBest) {
   const twoSeries = run.coderLabel !== null;
 
   let banner = "";
-  if (isBest) banner = `<span class="chip best">★ strongest to date</span> `;
-  if (run.partial) banner = `<span class="chip warn">✂ killed at ` +
+  if (isBest) banner = `<span class="chip best">★ strongest confirmed (${run.nRuns} runs)</span> `;
+  else if (run.partial) banner = `<span class="chip warn">✂ killed at ` +
     `${run.tasks}/${DATA.suite} tasks — unranked</span> `;
+  else if (!run.confirmed) banner = `<span class="chip warn">⚠ single run — ` +
+    `unconfirmed, needs ${DATA.confirmRuns}+ to be crownable</span> `;
 
   let legend = `<div class="legend"><span><span class="swatch"` +
     ` style="background:var(--s1);"></span>${esc(run.orchLabel)}</span>`;
@@ -459,22 +556,28 @@ function renderRun(run, isBest) {
     ` style="background:var(--s2);"></span>${esc(run.coderLabel)}</span>`;
   legend += `</div>`;
 
+  const multi = run.nRuns > 1;
+  const medianNote = multi ? " · median tokens" : "";
   let bars = "", trs = "";
   for (const r of run.rows) {
     const tot = r.orch + r.coder;
-    const failMark = r.passed ? "" : ' <span class="fx">✗</span>';
-    const tipText = `${r.task}${r.passed ? "" : "  (FAIL)"}\n` +
+    // k/n runs passed; red ✗ if it ever failed, amber count if flaky-but-mostly
+    const kn = multi ? ` <span class="kn">${r.passK}/${r.passN}</span>` : "";
+    const failMark = r.passed ? "" : ` <span class="fx">✗</span>`;
+    const tipText = `${r.task}\n` +
+      (multi ? `passed ${r.passK}/${r.passN} runs\n` : (r.passed ? "" : "FAILED\n")) +
       (twoSeries ? `orchestrator ${fmt(r.orch)} tok\ncoder ${fmt(r.coder)} tok\n`
                  : `${fmt(tot)} tok\n`) +
-      `${r.steps} steps · ${r.wall}s · status ${r.status}`;
+      `${r.steps} steps · ${r.wall}s${multi ? " (medians)" : ""} · status ${r.status}`;
     bars += `<div class="task-row" tabindex="0" data-tip="${esc(tipText)}">` +
       `<div class="task-name">${esc(r.task)}</div><div class="task-track">` +
       `<div class="seg" style="background:var(--s1);border-radius:3px 0 0 3px;` +
       `width:${(r.orch / maxTok * 100).toFixed(2)}%"></div>` +
       (twoSeries && r.coder ? `<div class="seg" style="background:var(--s2);` +
         `border-radius:0 4px 4px 0;width:${(r.coder / maxTok * 100).toFixed(2)}%"></div>` : "") +
-      `</div><div class="val">${fmt(tot)}${failMark}</div></div>`;
+      `</div><div class="val">${fmt(tot)}${kn}${failMark}</div></div>`;
     trs += `<tr><td>${esc(r.task)}${r.passed ? "" : " ✗"}</td>` +
+      (multi ? `<td class="num">${r.passK}/${r.passN}</td>` : "") +
       `<td class="num">${fmt(r.orch)}</td><td class="num">${fmt(r.coder)}</td>` +
       `<td class="num">${fmt(tot)}</td><td class="num">${r.steps}</td>` +
       `<td class="num">${r.wall}s</td></tr>`;
@@ -524,19 +627,20 @@ function renderRun(run, isBest) {
     <p class="blurb">${banner}${esc(run.blurb)}</p>
     <p class="verdict ${isBest ? "best-v" : ""}">${esc(run.verdict)}</p>
     <div class="tiles">
-      ${tile("Pass rate", rate, `${esc(run.date)} · commit ${esc(run.commit)}`,
+      ${tile("Pass rate", rate, medianNote2(run),
              run.passed === run.tasks ? "up-good" : "")}
-      ${tile("Total tokens", fmt(run.tokens), "orchestrator + coder")}
+      ${tile("Total tokens" + medianNote, fmt(run.tokens), "orchestrator + coder")}
       ${tile("Wall clock", run.wall + "s", `${run.steps} steps across ${run.tasks} tasks`)}
       ${expr ? tile("expr_eval", fmt(expr.orch + expr.coder),
-                    expr.passed ? "tokens · passed" : "tokens · failed") : ""}
+                    multi ? `tokens · passed ${expr.passK}/${expr.passN}`
+                          : (expr.passed ? "tokens · passed" : "tokens · failed")) : ""}
     </div>
     ${turnaround}${curveSection}
     <section><h2>Task by task</h2>
-    <p class="h2-note">${esc(run.desc)}. Hover a row for detail.</p>
+    <p class="h2-note">${esc(run.desc)}. ${multi ? "k/n = runs passed; tokens are medians. " : ""}Hover a row for detail.</p>
     <div class="panel">${legend}<div>${bars}</div>${axisTicks(maxTok)}
       <details><summary>Table view</summary><table>
-        <thead><tr><th>task</th><th class="num">orch tok</th><th class="num">coder tok</th>
+        <thead><tr><th>task</th>${multi ? '<th class="num">runs</th>' : ""}<th class="num">orch tok</th><th class="num">coder tok</th>
         <th class="num">total</th><th class="num">steps</th><th class="num">wall</th></tr></thead>
         <tbody>${trs}</tbody></table></details>
     </div></section>`;
@@ -583,7 +687,9 @@ function renderCompare() {
     `<span class="run-desc">${esc(r.desc)}</span>` +
     `<span class="run-desc">${esc(r.verdict)}</span></td>` +
     `<td class="mono">${esc(r.commit)}</td><td>${pill(r.passed === r.tasks)}` +
-    ` <span class="mono" style="font-size:12px;">${r.passed}/${r.tasks}</span></td>` +
+    ` <span class="mono" style="font-size:12px;">${r.passed}/${r.tasks}` +
+    `${r.nRuns > 1 ? (r.passMin === r.passMax ? "" : " (" + r.passMin + "-" + r.passMax + ")") : ""}</span>` +
+    `<span class="run-desc">${r.partial ? "killed mid-run" : "n=" + r.nRuns + (r.nRuns === 1 ? " · unconfirmed" : " runs")}</span></td>` +
     `<td class="num">${r.steps}</td><td class="num">${fmt(r.tokens)}</td>` +
     `<td class="num">${r.wall}s</td></tr>`).join("");
 
@@ -637,7 +743,7 @@ for (const t of tabs) {
 
 const best = DATA.runs.find(r => r.id === DATA.bestId);
 document.getElementById("hdr-chip").textContent = best
-  ? `best: ${best.passed}/${best.tasks} · ${fmt(best.tokens)} tok · ${best.config}`
+  ? `best: ${best.passed}/${best.tasks} median · ${fmt(best.tokens)} tok · ${best.config}`
   : "no runs yet";
 document.getElementById("gen").textContent = DATA.generated;
 select("best");
