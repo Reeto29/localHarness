@@ -194,6 +194,28 @@ Verdict: the split earns its keep, confirmed. But text mode found a real edge on
 multi-file work, and its losses are a fixable formatting problem, not a reasoning one.
 The prize (fully local, no cloud) is still live if the format fragility can be nailed.
 
+### 14. Pure gemma (no coder) — and the split gets dethroned
+
+Ran gemma-direct 3x: cloud gemma does everything itself, no delegation, no local coder.
+
+**Takeaway:** 8/8, 8/8, 8/8 — confirmed champion, and it beats the split on every axis:
+39.3k tokens vs 68k, 119s vs 577s wall, and one more task passed. The two-model split
+— the founding architecture of this whole project — is slower, costlier, AND less
+accurate than just letting the cloud model write the code itself. The coder isn't
+earning its keep on this bench; it's actively hurting. delegate_to_coder adds a round
+trip, a spec-writing tax, and a lossy hand-off, to do a job gemma does better alone.
+
+The honest asterisk: this bench is saturated (gemma one-shots almost everything), and
+the split's real reason to exist was never raw capability — it was PRIVACY and running
+local. gemma-direct is pure cloud; it wins the benchmark but loses the point of the
+project. So the standings now read two ways:
+- Best on the bench: gemma-direct (cloud, 8/8, cheap, fast).
+- Best that's actually local/private: single-gptoss (7/8) or the split (7/8), and text
+  mode (5/8) is the fully-local-no-cloud contender still needing its format fix.
+The bench measures capability; it can't measure "runs on my machine with no cloud bill,"
+which is the axis I actually started this for. Worth adding a "local-only" filter to the
+board so the two questions don't get conflated.
+
 ---
 
 ## Things I keep thinking about
@@ -236,8 +258,19 @@ Working plan (phases, biggest wins first):
 1. ~~Make runs survivable~~ done, see method 8.
 2. ~~Context hygiene~~ done, see method 9. expr_eval went from 141k-token failure to a
    12.4k-token pass.
-3. Text-action mode (the mini-swe-agent protocol), then the real experiment: split vs
-   single-gptoss vs single-gemma, 3 runs each, on the bench.
+3. ~~Text-action mode~~ done, see method 13. split (7/8) beat single-gptoss-text (5/8)
+   on 3x3 paired flips; text mode won expr_eval 3/3 but face-plants on easy tasks with
+   format errors.
 4. Orchestrator-level verify loop plus an interface contract (PLAN.md with exact shared
    signatures) for multi-file tasks.
 5. Rebuild the middle of the bench with seeded-bug tasks.
+
+### Backlog (tabled)
+- ~~Pure gemma baseline~~ done, method 14: 8/8 confirmed, dethrones the split. Answer to
+  "does the orchestrator even need the coder" is a blunt no (on this bench).
+- **Local-only board filter**: gemma-direct wins on capability but isn't local — the
+  bench conflates "most capable" with "best private/local harness." Tag configs
+  cloud/local/hybrid and let the board filter, so the project's actual goal (local) has
+  its own leaderboard.
+- Confirm the unconfirmed n=1 configs (split-qwen14b's 8/8 especially) with 3x runs.
+- `--runs N` flag on the runner so confirming a config is one command, not a shell loop.
