@@ -265,6 +265,17 @@ Working plan (phases, biggest wins first):
    signatures) for multi-file tasks.
 5. Rebuild the middle of the bench with seeded-bug tasks.
 
+### 15. Confirming qwen14b: the 8/8 was a lucky roll
+
+Ran split-qwen14b 3x (was an unconfirmed n=1 8/8).
+
+**Takeaway:** 7/8, 7/8, 7/8 — dead stable, and the earlier 8/8 was exactly the single
+lucky run the confirmation rule exists to catch. This is the whole n=1 methodology
+argument proven on live data: one run said 8/8, three runs say 7/8. qwen14b lands
+confirmed at 7/8, tied with split and single-gptoss, still behind gemma-direct's 8/8.
+Also confirms the board's "confirmation required for the crown" design was the right
+call — without it, a lucky 8/8 would still be wearing a crown it didn't earn.
+
 ### Backlog (tabled)
 - ~~Pure gemma baseline~~ done, method 14: 8/8 confirmed, dethrones the split. Answer to
   "does the orchestrator even need the coder" is a blunt no (on this bench).
